@@ -57,7 +57,7 @@ public struct AvatarView: UIViewRepresentable {
                 switch transition {
                 case .none:
                     container.cancelTransition()
-                    container.bridge.applyTracking(tracking, applyHeadPose: false)
+                    container.bridge.applyTracking(tracking)
                 case .smooth(let duration):
                     container.animateTo(tracking, duration: duration)
                 }
@@ -66,7 +66,7 @@ public struct AvatarView: UIViewRepresentable {
             // No face detected — apply as preset pose (blendshapes only)
             switch transition {
             case .none:
-                container.bridge.applyTracking(tracking, applyHeadPose: false)
+                container.bridge.applyTracking(tracking)
             case .smooth(let duration):
                 container.animateTo(tracking, duration: duration)
             }

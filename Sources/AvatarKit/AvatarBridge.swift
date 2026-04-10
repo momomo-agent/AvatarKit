@@ -68,32 +68,38 @@ final class AvatarBridge {
         avtView?.setValue(newAvatar, forKeyPath: "avatar")
         
         // Default to front-facing neutral pose — AVTRecordView's default is back-of-head
-        applyTracking(.neutral, applyHeadPose: false)
+        applyTracking(.neutral)
     }
     
     // MARK: - Apply Tracking Data
     
     /// Apply face tracking data from any source.
-    /// Set `applyHeadPose` to false for preset expressions (keeps head facing forward).
     func applyTracking(_ tracking: AvatarFaceTracking, applyHeadPose: Bool = true) {
         guard let avatar = avatar, let trackInfoCls = trackInfoCls else { return }
         
         frameCount += 1
         
         // Prefer baseline path: copy real ARFrame data, overwrite only blendshapes
-        guard let trackingInfo = buildTrackingInfoFromBaseline(tracking)
-                ?? buildTrackingInfo(tracking) else { return }
+        let fromBaseline = buildTrackingInfoFromBaseline(tracking)
+        let trackingInfo: NSObject
+        if let bl = fromBaseline {
+            trackingInfo = bl
+        } else if let manual = buildTrackingInfo(tracking) {
+            print("[AvatarKit] ⚠️ No baseline, using manual struct (may show back-of-head)")
+            trackingInfo = manual
+        } else {
+            return
+        }
         
-        // Apply blendshapes
+        // Always apply blendshapes
         let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
         if avatar.responds(to: bsSel) {
             avatar.perform(bsSel, with: trackingInfo)
         }
         
-        // Apply head pose only when requested (skip for presets)
-        guard applyHeadPose else { return }
-        
-        // Apply head pose
+        // Always apply head pose — the trackingInfo already contains the correct orientation
+        // (from baseline if available, or from the manual struct).
+        // Skipping this leaves the avatar in whatever pose it was last in (possibly back-of-head).
         let poseSel = NSSelectorFromString("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:")
         if avatar.responds(to: poseSel),
            let poseMethod = class_getInstanceMethod(type(of: avatar), poseSel) {
@@ -129,7 +135,15 @@ final class AvatarBridge {
         // Cache first frame's tracking data as baseline for presets
         if baselineTrackingData == nil {
             baselineTrackingData = nsData
-            print("[AvatarKit] ✅ Captured baseline tracking data (\(nsData.count) bytes)")
+            // Log the orientation from baseline so we know what "forward" looks like
+            nsData.withUnsafeBytes { raw in
+                let base = raw.baseAddress!
+                let qx = (base + 24).load(as: Float.self)
+                let qy = (base + 28).load(as: Float.self)
+                let qz = (base + 32).load(as: Float.self)
+                let qw = (base + 36).load(as: Float.self)
+                print("[AvatarKit] ✅ Baseline captured (\(nsData.count) bytes) orientation=(\(qx), \(qy), \(qz), \(qw))")
+            }
         }
         
         // Step 2: NSData → AVTFaceTrackingInfo via trackingInfoWithTrackingData:
