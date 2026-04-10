@@ -48,7 +48,6 @@ public struct AvatarView: UIViewRepresentable {
         
         // Apply tracking
         if tracking.isTracking {
-            container.hasReceivedTracking = true
             if let frame = tracking.arFrame {
                 // ARFrame path — always immediate, full pose (real-time)
                 container.cancelTransition()

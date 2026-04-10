@@ -66,6 +66,9 @@ final class AvatarBridge {
         
         self.avatar = newAvatar
         avtView?.setValue(newAvatar, forKeyPath: "avatar")
+        
+        // Default to front-facing neutral pose — AVTRecordView's default is back-of-head
+        applyTracking(.neutral, applyHeadPose: false)
     }
     
     // MARK: - Apply Tracking Data
