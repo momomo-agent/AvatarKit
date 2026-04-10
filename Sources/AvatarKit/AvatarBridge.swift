@@ -74,13 +74,15 @@ final class AvatarBridge {
     // MARK: - Apply Tracking Data
     
     /// Apply face tracking data from any source.
-    func applyTracking(_ tracking: AvatarFaceTracking, applyHeadPose: Bool = true) {
+    func applyTracking(_ tracking: AvatarFaceTracking) {
         guard let avatar = avatar, let trackInfoCls = trackInfoCls else { return }
         
         frameCount += 1
         
-        // Use manual struct path — orientation is corrected with 180° Y rotation
-        guard let trackingInfo = buildTrackingInfo(tracking) else { return }
+        // Prefer baseline path (correct orientation from real ARFrame),
+        // fall back to manual struct with 180° Y rotation
+        guard let trackingInfo = buildTrackingInfoFromBaseline(tracking)
+                ?? buildTrackingInfo(tracking) else { return }
         
         // Always apply blendshapes
         let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
@@ -181,6 +183,16 @@ final class AvatarBridge {
             // Update timestamp
             var ts = CACurrentMediaTime()
             memcpy(base, &ts, 8)
+            
+            // Apply user's head rotation on top of baseline orientation
+            if tracking.headRotation != simd_quatf(ix: 0, iy: 0, iz: 0, r: 1) {
+                // Read baseline orientation
+                var baseOrientation = simd_quatf()
+                memcpy(&baseOrientation, base + 24, 16)
+                // Compose: baseline * user rotation
+                var newOrientation = baseOrientation * tracking.headRotation
+                memcpy(base + 24, &newOrientation, 16)
+            }
             
             // Zero out blendshapes first, then write preset values
             // blendShapeWeights_smooth (offset 44, 51 floats = 204 bytes)
