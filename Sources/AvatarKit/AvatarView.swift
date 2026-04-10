@@ -1,26 +1,32 @@
 import SwiftUI
+import ARKit
 
 /// A SwiftUI view that renders an Animoji driven by face tracking data.
 ///
-/// Usage:
-/// ```swift
-/// // Real-time tracking
-/// AvatarView(animoji: "skull", tracking: faceTracking)
+/// Two modes:
+/// 1. **Direct ARFrame** (60fps, no SwiftUI overhead): set `arFrameSource` callback.
+///    ARFrames go straight to UIKit. `tracking` is used as fallback when no face detected.
+/// 2. **SwiftUI-driven**: omit `arFrameSource`, pass `tracking` for presets/blendshapes.
 ///
-/// // Preset with smooth transition
+/// ```swift
+/// // Real-time via direct callback (preferred for performance)
+/// AvatarView(animoji: "skull", tracking: fallbackExpression)
+///     .arFrameSource { callback in
+///         humanSense.onARFrame = callback
+///     }
+///
+/// // Preset only
 /// AvatarView(animoji: "skull", tracking: .wink, transition: .smooth())
 /// ```
 public struct AvatarView: UIViewRepresentable {
     
-    /// Which animoji to display (e.g. "skull", "tiger", "cat").
     public var animoji: String
-    
-    /// Face tracking data to drive the avatar.
     public var tracking: AvatarFaceTracking
-    
-    /// How to transition when tracking data changes.
-    /// Use `.none` for real-time tracking, `.smooth()` for preset switches.
     public var transition: AvatarTransition
+    
+    /// Optional: register a callback that receives ARFrames directly at 60fps.
+    /// The closure receives a `(ARFrame) -> Void` that the caller should wire to their ARFrame source.
+    var arFrameRegistration: ((@escaping (ARFrame) -> Void) -> Void)?
     
     public init(
         animoji: String = "skull",
@@ -32,9 +38,28 @@ public struct AvatarView: UIViewRepresentable {
         self.transition = transition
     }
     
+    /// Register a direct ARFrame source for 60fps rendering without SwiftUI overhead.
+    public func arFrameSource(_ registration: @escaping (@escaping (ARFrame) -> Void) -> Void) -> AvatarView {
+        var copy = self
+        copy.arFrameRegistration = registration
+        return copy
+    }
+    
     public func makeUIView(context: Context) -> UIView {
         let container = AvatarContainerView()
         container.loadAnimoji(animoji)
+        
+        // Wire up direct ARFrame path if provided
+        if let registration = arFrameRegistration {
+            context.coordinator.hasARFrameSource = true
+            registration { [weak container] frame in
+                guard let container = container else { return }
+                container.cancelTransition()
+                container.bridge.applyARFrame(frame)
+                context.coordinator.lastUsedARFrame = true
+            }
+        }
+        
         return container
     }
     
@@ -46,23 +71,40 @@ public struct AvatarView: UIViewRepresentable {
             container.loadAnimoji(animoji)
         }
         
+        // If using direct ARFrame source, only apply SwiftUI tracking for non-ARFrame states
+        // (e.g. fallback presets when face not detected)
+        if context.coordinator.hasARFrameSource {
+            // Only apply preset when we're NOT getting ARFrames (face lost, etc.)
+            if !tracking.isTracking || tracking.arFrame == nil {
+                if context.coordinator.lastUsedARFrame {
+                    container.resetPose()
+                    context.coordinator.lastUsedARFrame = false
+                }
+                switch transition {
+                case .none:
+                    container.cancelTransition()
+                    container.bridge.applyTracking(tracking)
+                case .smooth(let duration):
+                    container.animateTo(tracking, duration: duration)
+                }
+            }
+            return
+        }
+        
+        // Legacy SwiftUI-only path
         let wasUsingARFrame = context.coordinator.lastUsedARFrame
         let isUsingARFrame = tracking.isTracking && tracking.arFrame != nil
         
-        // Reset pose when transitioning from ARFrame to manual path
         if wasUsingARFrame && !isUsingARFrame {
             container.resetPose()
         }
         context.coordinator.lastUsedARFrame = isUsingARFrame
         
-        // Apply tracking
         if tracking.isTracking {
             if let frame = tracking.arFrame {
-                // ARFrame path — always immediate, full pose (real-time)
                 container.cancelTransition()
                 container.bridge.applyARFrame(frame)
             } else {
-                // Manual path — blendshapes only, head pose stays at default forward
                 switch transition {
                 case .none:
                     container.cancelTransition()
@@ -72,7 +114,6 @@ public struct AvatarView: UIViewRepresentable {
                 }
             }
         } else {
-            // No face detected — apply as preset pose (blendshapes only)
             switch transition {
             case .none:
                 container.bridge.applyTracking(tracking)
@@ -88,9 +129,9 @@ public struct AvatarView: UIViewRepresentable {
     
     public class Coordinator {
         var lastUsedARFrame = false
+        var hasARFrameSource = false
     }
     
-    /// All available animoji names.
     public static var availableAnimoji: [String] {
         AvatarBridge.availableAnimoji
     }
