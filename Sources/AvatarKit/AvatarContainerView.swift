@@ -50,6 +50,11 @@ final class AvatarContainerView: UIView {
         animTo = nil
     }
     
+    /// Reset head pose to default forward-facing (e.g. when switching from camera to audio mode).
+    func resetPose() {
+        bridge.resetPose()
+    }
+    
     @objc private func animationTick() {
         guard let from = animFrom, let to = animTo else {
             cancelTransition()

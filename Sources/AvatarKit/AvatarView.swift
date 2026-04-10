@@ -46,6 +46,15 @@ public struct AvatarView: UIViewRepresentable {
             container.loadAnimoji(animoji)
         }
         
+        let wasUsingARFrame = context.coordinator.lastUsedARFrame
+        let isUsingARFrame = tracking.isTracking && tracking.arFrame != nil
+        
+        // Reset pose when transitioning from ARFrame to manual path
+        if wasUsingARFrame && !isUsingARFrame {
+            container.resetPose()
+        }
+        context.coordinator.lastUsedARFrame = isUsingARFrame
+        
         // Apply tracking
         if tracking.isTracking {
             if let frame = tracking.arFrame {
@@ -53,7 +62,7 @@ public struct AvatarView: UIViewRepresentable {
                 container.cancelTransition()
                 container.bridge.applyARFrame(frame)
             } else {
-                // Manual path — blendshapes only, skip head pose (keeps default forward)
+                // Manual path — blendshapes only, head pose stays at default forward
                 switch transition {
                 case .none:
                     container.cancelTransition()
@@ -71,6 +80,14 @@ public struct AvatarView: UIViewRepresentable {
                 container.animateTo(tracking, duration: duration)
             }
         }
+    }
+    
+    public func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    public class Coordinator {
+        var lastUsedARFrame = false
     }
     
     /// All available animoji names.

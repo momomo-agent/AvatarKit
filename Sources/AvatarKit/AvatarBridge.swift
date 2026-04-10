@@ -55,6 +55,14 @@ final class AvatarBridge {
     
     // MARK: - Avatar Loading
     
+    /// Reset head pose to default forward-facing by reloading the current animoji.
+    func resetPose() {
+        guard let avatar = avatar, let name = currentAnimojiName else { return }
+        loadAnimoji(name)
+    }
+    
+    private var currentAnimojiName: String?
+    
     func loadAnimoji(_ name: String) {
         guard ensureFramework() else { return }
         guard let animojiCls = NSClassFromString("AVTAnimoji") else { return }
@@ -65,6 +73,7 @@ final class AvatarBridge {
         let newAvatar = result.takeUnretainedValue() as! NSObject
         
         self.avatar = newAvatar
+        self.currentAnimojiName = name
         avtView?.setValue(newAvatar, forKeyPath: "avatar")
         
         // Default to front-facing neutral pose — AVTRecordView's default is back-of-head
@@ -74,32 +83,23 @@ final class AvatarBridge {
     // MARK: - Apply Tracking Data
     
     /// Apply face tracking data from any source.
+    /// Apply face tracking data from manual/preset source.
+    /// Only applies blendshapes — head pose is left at AvatarKit's default (forward-facing).
+    /// For real-time head pose, use applyARFrame() which handles orientation correctly.
     func applyTracking(_ tracking: AvatarFaceTracking) {
         guard let avatar = avatar, let trackInfoCls = trackInfoCls else { return }
         
         frameCount += 1
         
-        // Prefer baseline path (correct orientation from real ARFrame),
-        // fall back to manual struct with 180° Y rotation
-        guard let trackingInfo = buildTrackingInfoFromBaseline(tracking)
-                ?? buildTrackingInfo(tracking) else { return }
+        // Manual struct only — no ARFrame baseline dependency
+        guard let trackingInfo = buildTrackingInfo(tracking) else { return }
         
-        // Always apply blendshapes
+        // Apply blendshapes only — do NOT call applyHeadPoseWithTrackingInfo
+        // because the manual struct's orientation is in a different coordinate space
+        // than what AvatarKit expects. Leaving head pose untouched keeps the default forward face.
         let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
         if avatar.responds(to: bsSel) {
             avatar.perform(bsSel, with: trackingInfo)
-        }
-        
-        // Always apply head pose — the trackingInfo already contains the correct orientation
-        // (from baseline if available, or from the manual struct).
-        // Skipping this leaves the avatar in whatever pose it was last in (possibly back-of-head).
-        let poseSel = NSSelectorFromString("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:")
-        if avatar.responds(to: poseSel),
-           let poseMethod = class_getInstanceMethod(type(of: avatar), poseSel) {
-            let poseImp = method_getImplementation(poseMethod)
-            typealias PoseFunc = @convention(c) (NSObject, Selector, NSObject, Bool, NSObject?) -> Void
-            let poseFn = unsafeBitCast(poseImp, to: PoseFunc.self)
-            poseFn(avatar, poseSel, trackingInfo, false, nil)
         }
     }
     
@@ -243,10 +243,8 @@ final class AvatarBridge {
             memcpy(base + 8, &translation, 12)
             
             // orientation (offset 24, simd_quatf = 16 bytes)
-            // AvatarKit's coordinate system has identity = back-of-head.
-            // Rotate 180° around Y to face forward, then apply user's rotation on top.
-            let faceForward = simd_quatf(angle: .pi, axis: simd_float3(0, 1, 0))
-            var orientation = faceForward * tracking.headRotation
+            // Not used for head pose (we only call applyBlendShapes, not applyHeadPose)
+            var orientation = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
             memcpy(base + 24, &orientation, 16)
             
             // cameraSpace = true (offset 40)
