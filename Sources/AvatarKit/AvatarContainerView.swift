@@ -10,6 +10,7 @@ final class AvatarContainerView: UIView {
     
     /// Load an animoji, deferring if the AVTRecordView isn't in the hierarchy yet.
     func loadAnimoji(_ name: String) {
+        print("[AvatarKit] loadAnimoji(\(name)) avtViewAdded=\(avtViewAdded)")
         currentAnimoji = name
         if avtViewAdded {
             bridge.loadAnimoji(name)
@@ -20,17 +21,23 @@ final class AvatarContainerView: UIView {
     
     override func layoutSubviews() {
         super.layoutSubviews()
+        print("[AvatarKit] layoutSubviews bounds=\(bounds) avtViewAdded=\(avtViewAdded)")
         guard bounds.width > 0, bounds.height > 0 else { return }
         
         if !avtViewAdded {
-            guard let avtView = bridge.createView(frame: bounds) else { return }
+            guard let avtView = bridge.createView(frame: bounds) else {
+                print("[AvatarKit] ❌ createView returned nil")
+                return
+            }
             avtView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(avtView)
             avtViewAdded = true
+            print("[AvatarKit] ✅ AVTRecordView added to hierarchy")
             
             // Load any animoji that was requested before the view was ready
             if let pending = pendingAnimoji {
                 pendingAnimoji = nil
+                print("[AvatarKit] Loading pending animoji: \(pending)")
                 bridge.loadAnimoji(pending)
             }
         } else if let avtView = subviews.first {
