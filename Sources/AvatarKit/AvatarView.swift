@@ -34,9 +34,13 @@ public struct AvatarView: UIViewRepresentable {
             container.loadAnimoji(animoji)
         }
         
-        // Apply tracking
+        // Apply tracking — prefer ARFrame path when available
         if tracking.isTracking {
-            container.bridge.applyTracking(tracking)
+            if let frame = tracking.arFrame {
+                container.bridge.applyARFrame(frame)
+            } else {
+                container.bridge.applyTracking(tracking)
+            }
         }
     }
     

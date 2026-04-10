@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import ARKit
 import simd
 import QuartzCore
 
@@ -81,6 +82,57 @@ final class AvatarBridge {
     }
     
     // MARK: - Build TrackingInfo
+    
+    /// Apply an ARFrame directly using AvatarKit's own dataWithARFrame pipeline.
+    /// This is the most reliable path — AvatarKit handles all orientation mapping internally.
+    func applyARFrame(_ frame: ARFrame) {
+        guard let avatar = avatar, let trackInfoCls = trackInfoCls else { return }
+        guard frame.anchors.contains(where: { $0 is ARFaceAnchor }) else { return }
+        
+        frameCount += 1
+        
+        guard let meta = object_getClass(trackInfoCls) else { return }
+        
+        // Step 1: ARFrame → raw NSData via dataWithARFrame:captureOrientation:interfaceOrientation:
+        let dataSel = NSSelectorFromString("dataWithARFrame:captureOrientation:interfaceOrientation:")
+        guard let dataMethod = class_getClassMethod(meta, dataSel) else { return }
+        let dataImp = method_getImplementation(dataMethod)
+        typealias DataFunc = @convention(c) (AnyClass, Selector, AnyObject, Int, Int) -> NSObject?
+        let dataFn = unsafeBitCast(dataImp, to: DataFunc.self)
+        // captureOrientation: 4 = landscapeRight (front camera sensor)
+        // interfaceOrientation: 1 = portrait (UI)
+        guard let data = dataFn(trackInfoCls, dataSel, frame, 4, 1) else { return }
+        
+        // Step 2: NSData → AVTFaceTrackingInfo via trackingInfoWithTrackingData:
+        let infoSel = NSSelectorFromString("trackingInfoWithTrackingData:")
+        guard let infoMethod = class_getClassMethod(meta, infoSel),
+              let nsData = data as? Data else { return }
+        let infoImp = method_getImplementation(infoMethod)
+        
+        guard let trackingInfo = nsData.withUnsafeBytes({ rawBuf -> NSObject? in
+            typealias InfoFunc = @convention(c) (AnyClass, Selector, UnsafeRawPointer) -> NSObject?
+            let infoFn = unsafeBitCast(infoImp, to: InfoFunc.self)
+            return infoFn(trackInfoCls, infoSel, rawBuf.baseAddress!)
+        }) else { return }
+        
+        // Apply blendshapes
+        let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
+        if avatar.responds(to: bsSel) {
+            avatar.perform(bsSel, with: trackingInfo)
+        }
+        
+        // Apply head pose
+        let poseSel = NSSelectorFromString("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:")
+        if avatar.responds(to: poseSel),
+           let poseMethod = class_getInstanceMethod(type(of: avatar), poseSel) {
+            let poseImp = method_getImplementation(poseMethod)
+            typealias PoseFunc = @convention(c) (NSObject, Selector, NSObject, Bool, NSObject?) -> Void
+            let poseFn = unsafeBitCast(poseImp, to: PoseFunc.self)
+            poseFn(avatar, poseSel, trackingInfo, false, nil)
+        }
+    }
+    
+    // MARK: - Build TrackingInfo (manual path)
     
     /// Build AVTFaceTrackingInfo from our AvatarFaceTracking struct.
     /// Layout: 480-byte C struct → trackingInfoWithTrackingData:
