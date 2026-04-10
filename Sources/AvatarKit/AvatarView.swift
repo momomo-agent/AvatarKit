@@ -52,11 +52,12 @@ public struct AvatarView: UIViewRepresentable {
         // Wire up direct ARFrame path if provided
         if let registration = arFrameRegistration {
             context.coordinator.hasARFrameSource = true
-            registration { [weak container] frame in
+            registration { [weak container, weak coordinator = context.coordinator] frame in
                 guard let container = container else { return }
                 container.cancelTransition()
                 container.bridge.applyARFrame(frame)
-                context.coordinator.lastUsedARFrame = true
+                coordinator?.lastARFrameTime = CACurrentMediaTime()
+                coordinator?.lastUsedARFrame = true
             }
         }
         
@@ -71,22 +72,26 @@ public struct AvatarView: UIViewRepresentable {
             container.loadAnimoji(animoji)
         }
         
-        // If using direct ARFrame source, only apply SwiftUI tracking for non-ARFrame states
-        // (e.g. fallback presets when face not detected)
+        // If using direct ARFrame source, only apply SwiftUI fallback when ARFrames
+        // have stopped arriving (face lost). This prevents SwiftUI redraws from
+        // fighting with the 60fps ARFrame callback.
         if context.coordinator.hasARFrameSource {
-            // Only apply preset when we're NOT getting ARFrames (face lost, etc.)
-            if !tracking.isTracking || tracking.arFrame == nil {
-                if context.coordinator.lastUsedARFrame {
-                    container.resetPose()
-                    context.coordinator.lastUsedARFrame = false
-                }
-                switch transition {
-                case .none:
-                    container.cancelTransition()
-                    container.bridge.applyTracking(tracking)
-                case .smooth(let duration):
-                    container.animateTo(tracking, duration: duration)
-                }
+            let timeSinceLastFrame = CACurrentMediaTime() - context.coordinator.lastARFrameTime
+            // ARFrames still arriving (within ~200ms) → skip SwiftUI entirely
+            if timeSinceLastFrame < 0.2 {
+                return
+            }
+            // ARFrames stopped → apply fallback preset
+            if context.coordinator.lastUsedARFrame {
+                container.resetPose()
+                context.coordinator.lastUsedARFrame = false
+            }
+            switch transition {
+            case .none:
+                container.cancelTransition()
+                container.bridge.applyTracking(tracking)
+            case .smooth(let duration):
+                container.animateTo(tracking, duration: duration)
             }
             return
         }
@@ -130,6 +135,7 @@ public struct AvatarView: UIViewRepresentable {
     public class Coordinator {
         var lastUsedARFrame = false
         var hasARFrameSource = false
+        var lastARFrameTime: CFTimeInterval = 0
     }
     
     public static var availableAnimoji: [String] {
