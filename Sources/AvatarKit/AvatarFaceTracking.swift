@@ -21,7 +21,7 @@ public struct AvatarFaceTracking {
     
     public init(
         blendshapes: [String: Float] = [:],
-        headRotation: simd_quatf = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
+        headRotation: simd_quatf = simd_quatf(angle: .pi, axis: simd_float3(0, 1, 0)),
         isTracking: Bool = false
     ) {
         self.blendshapes = blendshapes

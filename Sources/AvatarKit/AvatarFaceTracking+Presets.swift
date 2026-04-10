@@ -358,7 +358,7 @@ extension AvatarFaceTracking {
             "eyeBlinkLeft": 1.0, "eyeBlinkRight": 1.0,
             "mouthClose": 0.5,
         ],
-        headRotation: simd_quatf(angle: 0.3, axis: simd_float3(0, 0, 1)), // slight head tilt
+        headRotation: simd_quatf(angle: .pi, axis: simd_float3(0, 1, 0)) * simd_quatf(angle: 0.3, axis: simd_float3(0, 0, 1)), // face forward + slight head tilt
         isTracking: true
     )
     
