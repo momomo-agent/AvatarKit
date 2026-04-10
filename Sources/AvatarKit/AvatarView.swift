@@ -50,24 +50,24 @@ public struct AvatarView: UIViewRepresentable {
         if tracking.isTracking {
             container.hasReceivedTracking = true
             if let frame = tracking.arFrame {
-                // ARFrame path — always immediate (real-time)
+                // ARFrame path — always immediate, full pose (real-time)
                 container.cancelTransition()
                 container.bridge.applyARFrame(frame)
             } else {
+                // Manual path — blendshapes only, skip head pose (keeps default forward)
                 switch transition {
                 case .none:
                     container.cancelTransition()
-                    container.bridge.applyTracking(tracking)
+                    container.bridge.applyTracking(tracking, applyHeadPose: false)
                 case .smooth(let duration):
                     container.animateTo(tracking, duration: duration)
                 }
             }
         } else {
-            // No face detected — apply the provided tracking as a preset pose
-            // (caller sends .slightSmile, .warmSmile, etc.)
+            // No face detected — apply as preset pose (blendshapes only)
             switch transition {
             case .none:
-                container.bridge.applyTracking(tracking)
+                container.bridge.applyTracking(tracking, applyHeadPose: false)
             case .smooth(let duration):
                 container.animateTo(tracking, duration: duration)
             }

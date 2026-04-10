@@ -67,7 +67,8 @@ final class AvatarBridge {
     // MARK: - Apply Tracking Data
     
     /// Apply face tracking data from any source.
-    func applyTracking(_ tracking: AvatarFaceTracking) {
+    /// Set `applyHeadPose` to false for preset expressions (keeps head facing forward).
+    func applyTracking(_ tracking: AvatarFaceTracking, applyHeadPose: Bool = true) {
         guard let avatar = avatar, let trackInfoCls = trackInfoCls else { return }
         guard tracking.isTracking else { return }
         
@@ -81,6 +82,9 @@ final class AvatarBridge {
         if avatar.responds(to: bsSel) {
             avatar.perform(bsSel, with: trackingInfo)
         }
+        
+        // Apply head pose only when requested (skip for presets)
+        guard applyHeadPose else { return }
         
         // Apply head pose
         let poseSel = NSSelectorFromString("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:")

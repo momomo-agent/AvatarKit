@@ -64,7 +64,7 @@ final class AvatarContainerView: UIView {
         let t = easeInOutCubic(progress)
         
         let interpolated = interpolate(from: from, to: to, t: t)
-        bridge.applyTracking(interpolated)
+        bridge.applyTracking(interpolated, applyHeadPose: false)
         lastAppliedTracking = interpolated
         
         if progress >= 1.0 {
