@@ -74,7 +74,6 @@ final class AvatarBridge {
     /// Set `applyHeadPose` to false for preset expressions (keeps head facing forward).
     func applyTracking(_ tracking: AvatarFaceTracking, applyHeadPose: Bool = true) {
         guard let avatar = avatar, let trackInfoCls = trackInfoCls else { return }
-        guard tracking.isTracking else { return }
         
         frameCount += 1
         
