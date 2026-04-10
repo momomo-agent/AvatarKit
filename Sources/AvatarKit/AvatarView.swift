@@ -22,6 +22,7 @@ public struct AvatarView: UIViewRepresentable {
     
     public func makeUIView(context: Context) -> UIView {
         let container = AvatarContainerView()
+        container.loadAnimoji(animoji)
         return container
     }
     
@@ -30,8 +31,7 @@ public struct AvatarView: UIViewRepresentable {
         
         // Switch animoji if changed
         if container.currentAnimoji != animoji {
-            container.bridge.loadAnimoji(animoji)
-            container.currentAnimoji = animoji
+            container.loadAnimoji(animoji)
         }
         
         // Apply tracking
