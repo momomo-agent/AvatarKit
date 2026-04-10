@@ -4,20 +4,32 @@ import SwiftUI
 ///
 /// Usage:
 /// ```swift
+/// // Real-time tracking
 /// AvatarView(animoji: "skull", tracking: faceTracking)
+///
+/// // Preset with smooth transition
+/// AvatarView(animoji: "skull", tracking: .wink, transition: .smooth())
 /// ```
 public struct AvatarView: UIViewRepresentable {
     
     /// Which animoji to display (e.g. "skull", "tiger", "cat").
-    /// See `AvatarView.availableAnimoji` for the full list.
     public var animoji: String
     
     /// Face tracking data to drive the avatar.
     public var tracking: AvatarFaceTracking
     
-    public init(animoji: String = "skull", tracking: AvatarFaceTracking = .init()) {
+    /// How to transition when tracking data changes.
+    /// Use `.none` for real-time tracking, `.smooth()` for preset switches.
+    public var transition: AvatarTransition
+    
+    public init(
+        animoji: String = "skull",
+        tracking: AvatarFaceTracking = .init(),
+        transition: AvatarTransition = .none
+    ) {
         self.animoji = animoji
         self.tracking = tracking
+        self.transition = transition
     }
     
     public func makeUIView(context: Context) -> UIView {
@@ -34,12 +46,20 @@ public struct AvatarView: UIViewRepresentable {
             container.loadAnimoji(animoji)
         }
         
-        // Apply tracking — prefer ARFrame path when available
+        // Apply tracking
         if tracking.isTracking {
             if let frame = tracking.arFrame {
+                // ARFrame path — always immediate (real-time)
+                container.cancelTransition()
                 container.bridge.applyARFrame(frame)
             } else {
-                container.bridge.applyTracking(tracking)
+                switch transition {
+                case .none:
+                    container.cancelTransition()
+                    container.bridge.applyTracking(tracking)
+                case .smooth(let duration):
+                    container.animateTo(tracking, duration: duration)
+                }
             }
         }
     }
