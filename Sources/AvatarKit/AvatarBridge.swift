@@ -79,17 +79,8 @@ final class AvatarBridge {
         
         frameCount += 1
         
-        // Prefer baseline path: copy real ARFrame data, overwrite only blendshapes
-        let fromBaseline = buildTrackingInfoFromBaseline(tracking)
-        let trackingInfo: NSObject
-        if let bl = fromBaseline {
-            trackingInfo = bl
-        } else if let manual = buildTrackingInfo(tracking) {
-            print("[AvatarKit] ⚠️ No baseline, using manual struct (may show back-of-head)")
-            trackingInfo = manual
-        } else {
-            return
-        }
+        // Use manual struct path — orientation is corrected with 180° Y rotation
+        guard let trackingInfo = buildTrackingInfo(tracking) else { return }
         
         // Always apply blendshapes
         let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
@@ -240,7 +231,10 @@ final class AvatarBridge {
             memcpy(base + 8, &translation, 12)
             
             // orientation (offset 24, simd_quatf = 16 bytes)
-            var orientation = tracking.headRotation
+            // AvatarKit's coordinate system has identity = back-of-head.
+            // Rotate 180° around Y to face forward, then apply user's rotation on top.
+            let faceForward = simd_quatf(angle: .pi, axis: simd_float3(0, 1, 0))
+            var orientation = faceForward * tracking.headRotation
             memcpy(base + 24, &orientation, 16)
             
             // cameraSpace = true (offset 40)
