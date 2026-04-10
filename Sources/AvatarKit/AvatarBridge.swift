@@ -16,6 +16,10 @@ final class AvatarBridge {
     private var trackInfoCls: AnyClass?
     private var frameCount = 0
     
+    /// Cached tracking data bytes from a real ARFrame (neutral forward-facing).
+    /// Used as baseline for preset expressions — only blendshapes get overwritten.
+    private var baselineTrackingData: Data?
+    
     // MARK: - Setup
     
     private func ensureFramework() -> Bool {
@@ -74,8 +78,9 @@ final class AvatarBridge {
         
         frameCount += 1
         
-        // Build the raw tracking data struct that AvatarKit expects
-        guard let trackingInfo = buildTrackingInfo(tracking) else { return }
+        // Prefer baseline path: copy real ARFrame data, overwrite only blendshapes
+        guard let trackingInfo = buildTrackingInfoFromBaseline(tracking)
+                ?? buildTrackingInfo(tracking) else { return }
         
         // Apply blendshapes
         let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
@@ -115,14 +120,19 @@ final class AvatarBridge {
         let dataImp = method_getImplementation(dataMethod)
         typealias DataFunc = @convention(c) (AnyClass, Selector, AnyObject, Int, Int) -> NSObject?
         let dataFn = unsafeBitCast(dataImp, to: DataFunc.self)
-        // captureOrientation: 4 = landscapeRight (front camera sensor)
-        // interfaceOrientation: 1 = portrait (UI)
         guard let data = dataFn(trackInfoCls, dataSel, frame, 4, 1) else { return }
+        
+        guard let nsData = data as? Data else { return }
+        
+        // Cache first frame's tracking data as baseline for presets
+        if baselineTrackingData == nil {
+            baselineTrackingData = nsData
+            print("[AvatarKit] ✅ Captured baseline tracking data (\(nsData.count) bytes)")
+        }
         
         // Step 2: NSData → AVTFaceTrackingInfo via trackingInfoWithTrackingData:
         let infoSel = NSSelectorFromString("trackingInfoWithTrackingData:")
-        guard let infoMethod = class_getClassMethod(meta, infoSel),
-              let nsData = data as? Data else { return }
+        guard let infoMethod = class_getClassMethod(meta, infoSel) else { return }
         let infoImp = method_getImplementation(infoMethod)
         
         guard let trackingInfo = nsData.withUnsafeBytes({ rawBuf -> NSObject? in
@@ -131,13 +141,12 @@ final class AvatarBridge {
             return infoFn(trackInfoCls, infoSel, rawBuf.baseAddress!)
         }) else { return }
         
-        // Apply blendshapes
+        // Apply blendshapes + head pose
         let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
         if avatar.responds(to: bsSel) {
             avatar.perform(bsSel, with: trackingInfo)
         }
         
-        // Apply head pose
         let poseSel = NSSelectorFromString("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:")
         if avatar.responds(to: poseSel),
            let poseMethod = class_getInstanceMethod(type(of: avatar), poseSel) {
@@ -145,6 +154,50 @@ final class AvatarBridge {
             typealias PoseFunc = @convention(c) (NSObject, Selector, NSObject, Bool, NSObject?) -> Void
             let poseFn = unsafeBitCast(poseImp, to: PoseFunc.self)
             poseFn(avatar, poseSel, trackingInfo, false, nil)
+        }
+    }
+    
+    // MARK: - Build TrackingInfo (baseline path)
+    
+    /// Build AVTFaceTrackingInfo by copying a real ARFrame's data and overwriting only blendshapes.
+    /// This preserves the correct orientation/translation/cameraSpace from a real tracking session.
+    private func buildTrackingInfoFromBaseline(_ tracking: AvatarFaceTracking) -> NSObject? {
+        guard let baseline = baselineTrackingData,
+              let trackInfoCls = trackInfoCls,
+              let meta = object_getClass(trackInfoCls) else { return nil }
+        
+        var buffer = [UInt8](baseline)
+        
+        buffer.withUnsafeMutableBytes { raw in
+            let base = raw.baseAddress!
+            
+            // Update timestamp
+            var ts = CACurrentMediaTime()
+            memcpy(base, &ts, 8)
+            
+            // Zero out blendshapes first, then write preset values
+            // blendShapeWeights_smooth (offset 44, 51 floats = 204 bytes)
+            // blendShapeWeights_raw (offset 248, 51 floats = 204 bytes)
+            memset(base + 44, 0, 204)
+            memset(base + 248, 0, 204)
+            
+            for (name, value) in tracking.blendshapes {
+                if let idx = Self.arkitBlendShapeOrder[name], idx < 51 {
+                    var val = value
+                    memcpy(base + 44 + idx * 4, &val, 4)
+                    memcpy(base + 248 + idx * 4, &val, 4)
+                }
+            }
+        }
+        
+        let sel = NSSelectorFromString("trackingInfoWithTrackingData:")
+        guard let method = class_getClassMethod(meta, sel) else { return nil }
+        let imp = method_getImplementation(method)
+        
+        return buffer.withUnsafeBytes { rawBuf -> NSObject? in
+            typealias Func = @convention(c) (AnyClass, Selector, UnsafeRawPointer) -> NSObject?
+            let fn = unsafeBitCast(imp, to: Func.self)
+            return fn(trackInfoCls, sel, rawBuf.baseAddress!)
         }
     }
     
