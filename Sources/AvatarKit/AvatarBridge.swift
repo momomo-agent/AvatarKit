@@ -34,6 +34,18 @@ final class AvatarBridge {
         self.avtView = view as? NSObject
         view.backgroundColor = .clear
         setBool(on: view as NSObject, selector: "setRendersContinuously:", value: true)
+        // Disable AVTRecordView's built-in ARSession face tracking
+        // to prevent conflict with external ARSession (e.g. HumanSenseKit).
+        // These selectors may not exist — setBool safely checks responds(to:).
+        setBool(on: view as NSObject, selector: "setAutoTrackingEnabled:", value: false)
+        setBool(on: view as NSObject, selector: "setFaceTrackingEnabled:", value: false)
+        // Try to pause any internal ARSession
+        let arSel = NSSelectorFromString("arSession")
+        if (view as NSObject).responds(to: arSel),
+           let session = (view as NSObject).perform(arSel)?.takeUnretainedValue() as? ARSession {
+            session.pause()
+            NSLog("[AvatarBridge] Paused AVTRecordView's internal ARSession")
+        }
         return view
     }
     
