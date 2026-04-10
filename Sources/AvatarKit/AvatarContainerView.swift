@@ -5,6 +5,7 @@ import simd
 final class AvatarContainerView: UIView {
     let bridge = AvatarBridge()
     var currentAnimoji: String?
+    var hasReceivedTracking = false
     private var avtViewAdded = false
     private var pendingAnimoji: String?
     
@@ -121,6 +122,8 @@ final class AvatarContainerView: UIView {
                 pendingAnimoji = nil
                 print("[AvatarKit] Loading pending animoji: \(pending)")
                 bridge.loadAnimoji(pending)
+                // Apply default front-facing pose immediately so it doesn't show back-of-head
+                bridge.applyTracking(.slightSmile)
             }
         } else if let avtView = subviews.first {
             avtView.frame = bounds

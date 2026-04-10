@@ -48,6 +48,7 @@ public struct AvatarView: UIViewRepresentable {
         
         // Apply tracking
         if tracking.isTracking {
+            container.hasReceivedTracking = true
             if let frame = tracking.arFrame {
                 // ARFrame path — always immediate (real-time)
                 container.cancelTransition()
@@ -60,6 +61,15 @@ public struct AvatarView: UIViewRepresentable {
                 case .smooth(let duration):
                     container.animateTo(tracking, duration: duration)
                 }
+            }
+        } else {
+            // No face detected — apply the provided tracking as a preset pose
+            // (caller sends .slightSmile, .warmSmile, etc.)
+            switch transition {
+            case .none:
+                container.bridge.applyTracking(tracking)
+            case .smooth(let duration):
+                container.animateTo(tracking, duration: duration)
             }
         }
     }
