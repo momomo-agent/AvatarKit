@@ -19,6 +19,7 @@ extension AvatarFaceTracking {
         self.blendshapes = bs
         self.headRotation = q
         self.isTracking = faceAnchor?.isTracked ?? false
+        self.cameraSpace = true
         self.arFrame = arFrame
     }
     
@@ -36,6 +37,7 @@ extension AvatarFaceTracking {
         self.blendshapes = bs
         self.headRotation = mirrored
         self.isTracking = faceAnchor.isTracked
+        self.cameraSpace = true
         self.arFrame = nil
     }
 }
