@@ -28,6 +28,10 @@ public struct AvatarView: UIViewRepresentable {
     /// The closure receives a `(ARFrame) -> Void` that the caller should wire to their ARFrame source.
     var arFrameRegistration: ((@escaping (ARFrame) -> Void) -> Void)?
     
+    /// Optional: register a callback that receives AvatarFaceTracking directly at 60fps.
+    /// Bypasses SwiftUI diffing for smooth audio-driven animation.
+    var trackingRegistration: ((@escaping (AvatarFaceTracking) -> Void) -> Void)?
+    
     /// Optional: override blendshapes (e.g. from audio lip sync).
     /// When non-nil, these blendshapes are applied instead of ARFrame/tracking.
     var blendshapeOverrideValue: [String: Float]?
@@ -46,6 +50,14 @@ public struct AvatarView: UIViewRepresentable {
     public func arFrameSource(_ registration: @escaping (@escaping (ARFrame) -> Void) -> Void) -> AvatarView {
         var copy = self
         copy.arFrameRegistration = registration
+        return copy
+    }
+    
+    /// Register a direct tracking source for 60fps rendering without SwiftUI overhead.
+    /// Use for audio-driven animation or any non-ARKit tracking source that updates at high frequency.
+    public func trackingSource(_ registration: @escaping (@escaping (AvatarFaceTracking) -> Void) -> Void) -> AvatarView {
+        var copy = self
+        copy.trackingRegistration = registration
         return copy
     }
     
@@ -73,6 +85,17 @@ public struct AvatarView: UIViewRepresentable {
             }
         }
         
+        // Wire up direct tracking path if provided (for audio-driven animation)
+        if let registration = trackingRegistration {
+            registration { [weak container, weak coordinator = context.coordinator] tracking in
+                guard let container = container else { return }
+                container.cancelTransition()
+                container.bridge.applyTracking(tracking)
+                coordinator?.hasTrackingSource = true
+                coordinator?.lastTrackingSourceTime = CACurrentMediaTime()
+            }
+        }
+        
         return container
     }
     
@@ -82,6 +105,16 @@ public struct AvatarView: UIViewRepresentable {
         // Switch animoji if changed
         if container.currentAnimoji != animoji {
             container.loadAnimoji(animoji)
+        }
+        
+        // If using direct tracking source, skip SwiftUI-driven updates while active
+        if context.coordinator.hasTrackingSource {
+            let timeSinceLastTracking = CACurrentMediaTime() - context.coordinator.lastTrackingSourceTime
+            if timeSinceLastTracking < 0.2 {
+                return
+            }
+            // Tracking source stopped → fall through to SwiftUI path
+            context.coordinator.hasTrackingSource = false
         }
         
         // Blendshape override takes priority (e.g. audio lip sync)
@@ -158,6 +191,8 @@ public struct AvatarView: UIViewRepresentable {
         var lastUsedARFrame = false
         var hasARFrameSource = false
         var lastARFrameTime: CFTimeInterval = 0
+        var hasTrackingSource = false
+        var lastTrackingSourceTime: CFTimeInterval = 0
     }
     
     public static var availableAnimoji: [String] {
