@@ -602,8 +602,11 @@ final class AvatarBridge {
             var orientation = tracking.headRotation
             memcpy(base + StructLayout.orientation, &orientation, 16)
             
-            // Tracking valid flag (offset 48, UInt8)
-            base.storeBytes(of: UInt8(1), toByteOffset: StructLayout.trackingFlag, as: UInt8.self)
+            // Tracking flag (offset 48, UInt8)
+            // 0 = non-AR mode: skips arOffset subtraction, position = translation directly
+            // 1 = AR mode: position = translation - convertPosition(arOffset, neckNode→rootJointNode)
+            // We use 0 because we're not in AR — arOffset would shift the avatar off-center
+            base.storeBytes(of: UInt8(0), toByteOffset: StructLayout.trackingFlag, as: UInt8.self)
             
             // Blendshapes: smooth (offset 52) and raw (offset 256), both in ARIndex order
             for (name, value) in tracking.blendshapes {
@@ -687,7 +690,7 @@ final class AvatarBridge {
         // 8 bytes padding for 16-byte alignment
         static let translation = 16       // simd_float4 (16 bytes) — head position in camera space
         static let orientation = 32       // simd_quatf (16 bytes) — head rotation
-        static let trackingFlag = 48      // UInt8 (1 byte) — 1 = valid tracking
+        static let trackingFlag = 48      // UInt8 — 0=non-AR (no arOffset), 1=AR (subtract arOffset)
         // 3 bytes padding
         static let smoothBlendshapes = 52 // 51 × Float (204 bytes)
         static let rawBlendshapes = 256   // 51 × Float (204 bytes)
