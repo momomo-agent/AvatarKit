@@ -60,8 +60,8 @@ enum TrackingDataBuilder {
             var q = tracking.headRotation
             memcpy(base + Self.orientation, &q, 16)
             
-            // cameraSpace = true (matches ARFrame behavior for correct centering)
-            base.storeBytes(of: UInt8(1), toByteOffset: Self.cameraSpace, as: UInt8.self)
+            // cameraSpace — use tracking's preference
+            base.storeBytes(of: tracking.cameraSpace ? UInt8(1) : UInt8(0), toByteOffset: Self.cameraSpace, as: UInt8.self)
             
             // Blendshapes
             writeBlendshapes(base: base, blendshapes: tracking.blendshapes)
