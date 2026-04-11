@@ -5,8 +5,10 @@ import simd
 import QuartzCore
 
 /// Internal bridge to Apple's private AvatarKit framework.
-/// Handles framework loading, avatar creation, and tracking data application.
-/// All interaction is via ObjC runtime — no headers needed.
+///
+/// All interaction with Apple's ObjC runtime goes through `ObjCRuntime`.
+/// Tracking data construction is delegated to `TrackingDataBuilder`.
+/// Blendshape order lives in `BlendshapeOrder`.
 @MainActor
 final class AvatarBridge {
     
@@ -16,8 +18,8 @@ final class AvatarBridge {
     private var trackInfoCls: AnyClass?
     private var frameCount = 0
     
-    /// Cached tracking data bytes from a real ARFrame (neutral forward-facing).
-    /// Used as baseline for preset expressions — only blendshapes get overwritten.
+    /// Cached tracking data from a real ARFrame (neutral forward-facing).
+    /// Used as baseline for preset expressions.
     private var baselineTrackingData: Data?
     
     // MARK: - Setup
@@ -35,167 +37,105 @@ final class AvatarBridge {
         guard let viewClass = NSClassFromString("AVTRecordView") as? UIView.Type else { return nil }
         
         let view = viewClass.init(frame: frame)
-        self.avtView = view as? NSObject
+        self.avtView = view as NSObject
         view.backgroundColor = .clear
-        setBool(on: view as NSObject, selector: "setRendersContinuously:", value: true)
-        // Disable AVTRecordView's built-in ARSession face tracking
-        // to prevent conflict with external ARSession (e.g. HumanSenseKit).
-        // These selectors may not exist — setBool safely checks responds(to:).
-        setBool(on: view as NSObject, selector: "setAutoTrackingEnabled:", value: false)
-        setBool(on: view as NSObject, selector: "setFaceTrackingEnabled:", value: false)
-        // Try to pause any internal ARSession
-        let arSel = NSSelectorFromString("arSession")
-        if (view as NSObject).responds(to: arSel),
-           let session = (view as NSObject).perform(arSel)?.takeUnretainedValue() as? ARSession {
+        
+        let obj = view as NSObject
+        ObjCRuntime.setBool(on: obj, "setRendersContinuously:", true)
+        ObjCRuntime.setBool(on: obj, "setAutoTrackingEnabled:", false)
+        ObjCRuntime.setBool(on: obj, "setFaceTrackingEnabled:", false)
+        
+        // Pause any internal ARSession to prevent conflict with external tracking
+        if let session = ObjCRuntime.callReturning(obj, "arSession") as? ARSession {
             session.pause()
-            NSLog("[AvatarBridge] Paused AVTRecordView's internal ARSession")
         }
+        
         return view
     }
     
     // MARK: - Avatar Loading
     
-    /// Reset head pose to default forward-facing by reloading the current animoji.
+    private var currentAnimojiName: String?
+    
     func resetPose() {
-        guard let avatar = avatar, let name = currentAnimojiName else { return }
+        guard avatar != nil, let name = currentAnimojiName else { return }
         loadAnimoji(name)
     }
-    
-    private var currentAnimojiName: String?
     
     func loadAnimoji(_ name: String) {
         guard ensureFramework() else { return }
         guard let animojiCls = NSClassFromString("AVTAnimoji") else { return }
-        
-        let sel = NSSelectorFromString("animojiNamed:")
-        guard animojiCls.responds(to: sel) else { return }
-        guard let result = (animojiCls as AnyObject).perform(sel, with: name) else { return }
-        let newAvatar = result.takeUnretainedValue() as! NSObject
+        guard let newAvatar = ObjCRuntime.callClass(animojiCls, "animojiNamed:", name) else { return }
         
         self.avatar = newAvatar
         self.currentAnimojiName = name
         avtView?.setValue(newAvatar, forKeyPath: "avatar")
-        
-        // Default to front-facing neutral pose — AVTRecordView's default is back-of-head
         applyTracking(.neutral)
-        
-        // Dump scene info for debugging centering
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.dumpSceneInfo()
-        }
     }
     
-    // MARK: - Apply Tracking Data
+    // MARK: - Apply Tracking
     
-    /// Apply face tracking data from any source.
-    /// Applies blendshapes via applyBlendShapesWithTrackingInfo: (same as Apple's pipeline).
-    /// Applies head pose via applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:
-    /// with gazeCorrection=false and pointOfView=nil (world-space orientation).
     func applyTracking(_ tracking: AvatarFaceTracking) {
-        guard let avatar = avatar, let trackInfoCls = trackInfoCls else { return }
-        
+        guard let avatar = avatar else { return }
         frameCount += 1
         
-        guard let trackingInfo = buildTrackingInfo(tracking) else { return }
+        guard let trackingInfo = makeTrackingInfo(from: tracking) else { return }
         
-        // Apply blendshapes — matches Apple's applyBlendShapesWithTrackingInfo:
-        // which calls trackingData → _applyBlendShapesWithTrackingData:
-        // which reads blendshapes at offset 52 in ARIndex order
-        let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
-        if avatar.responds(to: bsSel) {
-            avatar.perform(bsSel, with: trackingInfo)
-        }
+        // Apply blendshapes
+        ObjCRuntime.call(avatar, "applyBlendShapesWithTrackingInfo:", trackingInfo)
         
-        // Apply head pose — matches Apple's applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:
-        // which reads quaternion at offset 32, translation at offset 16, flag at offset 48
-        // pointOfView=nil → world-space orientation (no camera transform)
-        // The tracking flag in buildTrackingInfo controls arOffset behavior
-        let poseSel = NSSelectorFromString("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:")
-        if avatar.responds(to: poseSel),
-           let poseMethod = class_getInstanceMethod(type(of: avatar), poseSel) {
-            let poseImp = method_getImplementation(poseMethod)
-            typealias PoseFunc = @convention(c) (NSObject, Selector, NSObject, Bool, NSObject?) -> Void
-            let poseFn = unsafeBitCast(poseImp, to: PoseFunc.self)
-            poseFn(avatar, poseSel, trackingInfo, false, nil)
+        // Apply head pose (gazeCorrection=false, pointOfView=nil → world-space)
+        typealias PoseFunc = @convention(c) (NSObject, Selector, NSObject, Bool, NSObject?) -> Void
+        if let fn = ObjCRuntime.imp(avatar, "applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:", as: PoseFunc.self) {
+            fn(avatar, ObjCRuntime.sel("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:"),
+               trackingInfo, false, nil)
         }
     }
     
-    /// Apply tracking data with VFXTransaction smoothing animation.
-    /// Matches Apple's updatePoseWithFaceTrackingData:applySmoothing:
-    /// When applySmoothing=true, wraps apply calls in a VFXTransaction with easeOut timing.
+    /// Apply with VFXTransaction smoothing animation.
     func updatePose(with trackingData: Data, applySmoothing: Bool = true) {
         guard let avatar = avatar else { return }
-        
-        let sel = NSSelectorFromString("updatePoseWithFaceTrackingData:applySmoothing:")
-        guard avatar.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: avatar), sel) else { return }
-        let imp = method_getImplementation(method)
         typealias Func = @convention(c) (NSObject, Selector, NSData, Bool) -> Void
-        let fn = unsafeBitCast(imp, to: Func.self)
-        fn(avatar, sel, trackingData as NSData, applySmoothing)
+        if let fn = ObjCRuntime.imp(avatar, "updatePoseWithFaceTrackingData:applySmoothing:", as: Func.self) {
+            fn(avatar, ObjCRuntime.sel("updatePoseWithFaceTrackingData:applySmoothing:"),
+               trackingData as NSData, applySmoothing)
+        }
     }
     
-    /// Apply tracking with a pose provider (AVTAvatarPose).
-    /// Matches Apple's updatePoseWithPoseProvider:applySmoothing:
-    /// The pose provider supplies blendshape weights + neck position/orientation.
+    /// Apply with a pose provider (AVTAvatarPose).
     func updatePose(withProvider provider: NSObject, applySmoothing: Bool = true) {
         guard let avatar = avatar else { return }
-        
-        let sel = NSSelectorFromString("updatePoseWithPoseProvider:applySmoothing:")
-        guard avatar.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: avatar), sel) else { return }
-        let imp = method_getImplementation(method)
         typealias Func = @convention(c) (NSObject, Selector, NSObject, Bool) -> Void
-        let fn = unsafeBitCast(imp, to: Func.self)
-        fn(avatar, sel, provider, applySmoothing)
+        if let fn = ObjCRuntime.imp(avatar, "updatePoseWithPoseProvider:applySmoothing:", as: Func.self) {
+            fn(avatar, ObjCRuntime.sel("updatePoseWithPoseProvider:applySmoothing:"),
+               provider, applySmoothing)
+        }
     }
     
-    /// Read a single blendshape weight by name.
-    /// Matches Apple's AVTAvatarPose.weightForBlendShapeNamed:
-    /// Returns the current weight from the avatar's internal pose dictionary.
+    // MARK: - Blendshape Access
+    
     func weightForBlendShape(named name: String) -> Float? {
-        guard let avatar = avatar else { return nil }
-        
-        // Get the avatar's current pose
-        let poseSel = NSSelectorFromString("currentPose")
-        guard avatar.responds(to: poseSel),
-              let poseResult = avatar.perform(poseSel),
-              let pose = poseResult.takeUnretainedValue() as? NSObject else { return nil }
-        
-        let sel = NSSelectorFromString("weightForBlendShapeNamed:")
-        guard pose.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: pose), sel) else { return nil }
-        let imp = method_getImplementation(method)
+        guard let pose = currentPose() else { return nil }
         typealias Func = @convention(c) (NSObject, Selector, NSString) -> Float
-        let fn = unsafeBitCast(imp, to: Func.self)
-        return fn(pose, sel, name as NSString)
+        guard let fn = ObjCRuntime.imp(pose, "weightForBlendShapeNamed:", as: Func.self) else { return nil }
+        return fn(pose, ObjCRuntime.sel("weightForBlendShapeNamed:"), name as NSString)
     }
     
-    /// Set a single blendshape weight by name.
-    /// Matches Apple's AVTAvatarPose.setWeight:forBlendShapeNamed:
-    /// Setting weight to 0 removes the key from the internal dictionary.
     func setWeight(_ weight: Float, forBlendShapeNamed name: String) {
-        guard let avatar = avatar else { return }
-        
-        let poseSel = NSSelectorFromString("currentPose")
-        guard avatar.responds(to: poseSel),
-              let poseResult = avatar.perform(poseSel),
-              let pose = poseResult.takeUnretainedValue() as? NSObject else { return }
-        
-        let sel = NSSelectorFromString("setWeight:forBlendShapeNamed:")
-        guard pose.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: pose), sel) else { return }
-        let imp = method_getImplementation(method)
+        guard let pose = currentPose() else { return }
         typealias Func = @convention(c) (NSObject, Selector, Float, NSString) -> Void
-        let fn = unsafeBitCast(imp, to: Func.self)
-        fn(pose, sel, weight, name as NSString)
+        if let fn = ObjCRuntime.imp(pose, "setWeight:forBlendShapeNamed:", as: Func.self) {
+            fn(pose, ObjCRuntime.sel("setWeight:forBlendShapeNamed:"), weight, name as NSString)
+        }
     }
     
-    /// Transition to custom face tracking mode with animation.
-    /// Matches Apple's transitionToCustomFaceTrackingWithDuration:style:enableBakedAnimations:
-    ///   faceTrackingDidStartHandlerReceiverBlock:completionHandler:
-    /// style: 1-5 (different transition animations)
-    /// enableBakedAnimations: whether to enable idle animations during custom tracking
+    private func currentPose() -> NSObject? {
+        guard let avatar = avatar else { return nil }
+        return ObjCRuntime.callReturning(avatar, "currentPose")
+    }
+    
+    // MARK: - Transitions
+    
     func transitionToCustomFaceTracking(
         duration: Double = 0.3,
         style: Int = 1,
@@ -204,36 +144,21 @@ final class AvatarBridge {
         completion: (() -> Void)? = nil
     ) {
         guard let view = avtView else { return }
+        let selName = "transitionToCustomFaceTrackingWithDuration:style:enableBakedAnimations:faceTrackingDidStartHandlerReceiverBlock:completionHandler:"
         
-        let sel = NSSelectorFromString("transitionToCustomFaceTrackingWithDuration:style:enableBakedAnimations:faceTrackingDidStartHandlerReceiverBlock:completionHandler:")
-        guard view.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: view), sel) else { return }
-        let imp = method_getImplementation(method)
+        typealias Func = @convention(c) (NSObject, Selector, Double, Int, Bool, AnyObject?, AnyObject?) -> Void
+        guard let fn = ObjCRuntime.imp(view, selName, as: Func.self) else { return }
         
-        // Wrap Swift closures as ObjC blocks
         let startBlock: @convention(block) () -> Void = { didStart?() }
         let completionBlock: @convention(block) () -> Void = { completion?() }
         
-        typealias Func = @convention(c) (NSObject, Selector, Double, Int, Bool, AnyObject?, AnyObject?) -> Void
-        let fn = unsafeBitCast(imp, to: Func.self)
-        fn(view, sel, duration, style, enableBakedAnimations,
+        fn(view, ObjCRuntime.sel(selName), duration, style, enableBakedAnimations,
            didStart != nil ? unsafeBitCast(startBlock, to: AnyObject.self) : nil,
            completion != nil ? unsafeBitCast(completionBlock, to: AnyObject.self) : nil)
     }
     
-    // MARK: - Animation Playback
+    // MARK: - Animation
     
-    /// Add a pose animation to the avatar with transition.
-    /// Matches Apple's AVTAvatarPoseAnimation._addAnimationToAvatar:options:
-    ///   transitionInDuration:transitionOutDuration:isTransient:completionQueue:completionHandler:
-    /// This is how Animoji stickers play their baked animations (wink, heart eyes, etc.)
-    /// - Parameters:
-    ///   - animation: AVTAvatarPoseAnimation object (loaded from .scn or dictionary)
-    ///   - options: Animation options (0 = default)
-    ///   - transitionIn: Blend-in duration in seconds
-    ///   - transitionOut: Blend-out duration in seconds
-    ///   - isTransient: If true, animation auto-removes after playing once
-    ///   - completion: Called when animation finishes
     func addAnimation(
         _ animation: NSObject,
         options: UInt = 0,
@@ -243,138 +168,101 @@ final class AvatarBridge {
         completion: (() -> Void)? = nil
     ) {
         guard let avatar = avatar else { return }
-        
-        let sel = NSSelectorFromString("_addAnimationToAvatar:options:transitionInDuration:transitionOutDuration:isTransient:completionQueue:completionHandler:")
-        guard animation.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: animation), sel) else { return }
-        let imp = method_getImplementation(method)
-        
-        let completionBlock: @convention(block) () -> Void = { completion?() }
+        let selName = "_addAnimationToAvatar:options:transitionInDuration:transitionOutDuration:isTransient:completionQueue:completionHandler:"
         
         typealias Func = @convention(c) (NSObject, Selector, NSObject, UInt, Double, Double, Bool, AnyObject?, AnyObject?) -> NSObject?
-        let fn = unsafeBitCast(imp, to: Func.self)
-        _ = fn(animation, sel, avatar, options, transitionIn, transitionOut, isTransient,
-               nil, // completionQueue — nil = main queue
-               completion != nil ? unsafeBitCast(completionBlock, to: AnyObject.self) : nil)
-    }
-    
-    /// Remove the current animation with a blend-out duration.
-    /// Matches Apple's AVTAvatarPoseAnimationController.removeAnimationWithBlendOutDuration:
-    func removeAnimation(blendOutDuration: Double = 0.2) {
-        guard let avatar = avatar else { return }
-        
-        // Get the animation controller from the avatar
-        let ctrlSel = NSSelectorFromString("animationController")
-        guard avatar.responds(to: ctrlSel),
-              let ctrlResult = avatar.perform(ctrlSel),
-              let controller = ctrlResult.takeUnretainedValue() as? NSObject else { return }
-        
-        let sel = NSSelectorFromString("removeAnimationWithBlendOutDuration:")
-        guard controller.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: controller), sel) else { return }
-        let imp = method_getImplementation(method)
-        typealias Func = @convention(c) (NSObject, Selector, Double) -> Void
-        let fn = unsafeBitCast(imp, to: Func.self)
-        fn(controller, sel, blendOutDuration)
-    }
-    
-    /// Transition between two poses with animation.
-    /// Matches Apple's _transitionFromPose:toPose:bakedAnimationBlendFactor:
-    ///   duration:delay:timingFunction:timingAnimation:completionHandler:
-    /// Used for smooth transitions between expressions (e.g. neutral → smile).
-    func transitionFromPose(
-        _ fromPose: NSObject,
-        toPose: NSObject,
-        bakedAnimationBlendFactor: Double = 0.0,
-        duration: Double = 0.3,
-        delay: Double = 0.0,
-        completion: (() -> Void)? = nil
-    ) {
-        guard let avatar = avatar else { return }
-        
-        let sel = NSSelectorFromString("_transitionFromPose:toPose:bakedAnimationBlendFactor:duration:delay:timingFunction:timingAnimation:completionHandler:")
-        guard avatar.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: avatar), sel) else { return }
-        let imp = method_getImplementation(method)
+        guard let fn = ObjCRuntime.imp(animation, selName, as: Func.self) else { return }
         
         let completionBlock: @convention(block) () -> Void = { completion?() }
+        _ = fn(animation, ObjCRuntime.sel(selName), avatar, options, transitionIn, transitionOut, isTransient,
+               nil, completion != nil ? unsafeBitCast(completionBlock, to: AnyObject.self) : nil)
+    }
+    
+    func removeAnimation(blendOutDuration: Double = 0.2) {
+        guard let avatar = avatar else { return }
+        guard let controller = ObjCRuntime.callReturning(avatar, "animationController") else { return }
         
-        typealias Func = @convention(c) (NSObject, Selector, NSObject, NSObject, Double, Double, Double, NSObject?, NSObject?, AnyObject?) -> Void
-        let fn = unsafeBitCast(imp, to: Func.self)
-        fn(avatar, sel, fromPose, toPose, bakedAnimationBlendFactor, duration, delay,
-           nil, nil, // timingFunction, timingAnimation — nil = default easeOut
-           completion != nil ? unsafeBitCast(completionBlock, to: AnyObject.self) : nil)
-    }
-    
-    /// Get the avatar's baked animation player (SCNAnimationPlayer).
-    /// Baked animations are the idle/breathing animations built into each Animoji.
-    var bakedAnimationPlayer: NSObject? {
-        guard let avatar = avatar else { return nil }
-        let sel = NSSelectorFromString("bakedAnimationPlayer")
-        guard avatar.responds(to: sel),
-              let result = avatar.perform(sel) else { return nil }
-        return result.takeUnretainedValue() as? NSObject
-    }
-    
-    /// Get a copy of the baked animation (SCNAnimation).
-    var bakedAnimationCopy: NSObject? {
-        guard let avatar = avatar else { return nil }
-        let sel = NSSelectorFromString("bakedAnimationCopy")
-        guard avatar.responds(to: sel),
-              let result = avatar.perform(sel) else { return nil }
-        return result.takeUnretainedValue() as? NSObject
+        typealias Func = @convention(c) (NSObject, Selector, Double) -> Void
+        if let fn = ObjCRuntime.imp(controller, "removeAnimationWithBlendOutDuration:", as: Func.self) {
+            fn(controller, ObjCRuntime.sel("removeAnimationWithBlendOutDuration:"), blendOutDuration)
+        }
     }
     
     // MARK: - Pose Construction
     
-    /// Create an AVTAvatarPose from blendshape weights and neck transform.
-    /// Matches Apple's initWithWeights:neckPosition:neckOrientation:bakedAnimationBlendFactor:
-    /// This is the data object used by transitionFromPose/toPose and updatePoseWithPoseProvider.
+    func transitionFromPose(
+        _ fromPose: NSObject,
+        toPose: NSObject,
+        duration: Double = 0.3,
+        completion: (() -> Void)? = nil
+    ) {
+        guard let avatar = avatar else { return }
+        let selName = "transitionFromPose:toPose:duration:completionHandler:"
+        
+        typealias Func = @convention(c) (NSObject, Selector, NSObject, NSObject, Double, AnyObject?) -> Void
+        guard let fn = ObjCRuntime.imp(avatar, selName, as: Func.self) else { return }
+        
+        let completionBlock: @convention(block) () -> Void = { completion?() }
+        fn(avatar, ObjCRuntime.sel(selName), fromPose, toPose, duration,
+           completion != nil ? unsafeBitCast(completionBlock, to: AnyObject.self) : nil)
+    }
+    
+    var bakedAnimationPlayer: NSObject? {
+        guard let avatar = avatar else { return nil }
+        return ObjCRuntime.callReturning(avatar, "animationController")
+    }
+    
+    var bakedAnimationCopy: NSObject? {
+        guard let avatar = avatar else { return nil }
+        guard let controller = ObjCRuntime.callReturning(avatar, "animationController") else { return nil }
+        guard let animation = ObjCRuntime.callReturning(controller, "animation") else { return nil }
+        return ObjCRuntime.callReturning(animation, "copy")
+    }
+    
     func createPose(
-        weights: [String: Float],
-        neckPosition: simd_float3 = .zero,
-        neckOrientation: simd_quatf = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
-        bakedAnimationBlendFactor: Double = 0.0
+        blendshapes: [String: Float],
+        neckPosition: SIMD3<Float>? = nil,
+        neckOrientation: simd_quatf? = nil
     ) -> NSObject? {
         guard let poseCls = NSClassFromString("AVTAvatarPose") else { return nil }
+        guard let pose = ObjCRuntime.callClass(poseCls, "alloc") else { return nil }
+        guard let initialized = ObjCRuntime.callReturning(pose, "init") else { return nil }
         
-        // Convert weights dict to NSDictionary<NSString, NSNumber>
-        let nsWeights = NSMutableDictionary(capacity: weights.count)
-        for (key, value) in weights {
-            nsWeights[key as NSString] = NSNumber(value: value)
+        // Set blendshape weights
+        typealias SetWeightFunc = @convention(c) (NSObject, Selector, Float, NSString) -> Void
+        if let fn = ObjCRuntime.imp(initialized, "setWeight:forBlendShapeNamed:", as: SetWeightFunc.self) {
+            let sel = ObjCRuntime.sel("setWeight:forBlendShapeNamed:")
+            for (name, weight) in blendshapes {
+                fn(initialized, sel, weight, name as NSString)
+            }
         }
         
-        let sel = NSSelectorFromString("initWithWeights:neckPosition:neckOrientation:bakedAnimationBlendFactor:")
-        let allocSel = NSSelectorFromString("alloc")
-        guard let rawObj = (poseCls as AnyObject).perform(allocSel)?.takeUnretainedValue() as? NSObject,
-              rawObj.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: rawObj), sel) else { return nil }
-        let imp = method_getImplementation(method)
+        // Set neck position/orientation if provided
+        if let pos = neckPosition {
+            typealias SetVec3Func = @convention(c) (NSObject, Selector, SIMD3<Float>) -> Void
+            if let fn = ObjCRuntime.imp(initialized, "setNeckPosition:", as: SetVec3Func.self) {
+                fn(initialized, ObjCRuntime.sel("setNeckPosition:"), pos)
+            }
+        }
+        if let orient = neckOrientation {
+            typealias SetQuatFunc = @convention(c) (NSObject, Selector, simd_quatf) -> Void
+            if let fn = ObjCRuntime.imp(initialized, "setNeckOrientation:", as: SetQuatFunc.self) {
+                fn(initialized, ObjCRuntime.sel("setNeckOrientation:"), orient)
+            }
+        }
         
-        typealias Func = @convention(c) (NSObject, Selector, NSDictionary, simd_float3, simd_quatf, Double) -> NSObject?
-        let fn = unsafeBitCast(imp, to: Func.self)
-        return fn(rawObj, sel, nsWeights, neckPosition, neckOrientation, bakedAnimationBlendFactor)
+        return initialized
     }
     
     // MARK: - Snapshot & Sticker
     
-    /// Take a snapshot of the current avatar view.
-    /// Matches Apple's AVTView.snapshotWithSize:scaleFactor:options:
     func snapshot(size: CGSize, scale: Float = 2.0) -> UIImage? {
         guard let view = avtView else { return nil }
-        
-        let sel = NSSelectorFromString("snapshotWithSize:scaleFactor:options:")
-        guard view.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: view), sel) else { return nil }
-        let imp = method_getImplementation(method)
         typealias Func = @convention(c) (NSObject, Selector, CGSize, Float, NSObject?) -> UIImage?
-        let fn = unsafeBitCast(imp, to: Func.self)
-        return fn(view, sel, size, scale, nil)
+        guard let fn = ObjCRuntime.imp(view, "snapshotWithSize:scaleFactor:options:", as: Func.self) else { return nil }
+        return fn(view, ObjCRuntime.sel("snapshotWithSize:scaleFactor:options:"), size, scale, nil)
     }
     
-    /// Generate a sticker image with a given configuration.
-    /// Matches Apple's AVTStickerGenerator.stickerImageWithConfiguration:completionHandler:
-    /// Used for generating Animoji sticker images (the static emoji-like images).
     func generateSticker(
         configuration: NSObject,
         completion: @escaping (UIImage?) -> Void
@@ -385,466 +273,112 @@ final class AvatarBridge {
             return
         }
         
-        // Create generator: [[AVTStickerGenerator alloc] initWithAvatar:]
-        let allocSel = NSSelectorFromString("alloc")
-        guard let rawGen = (genCls as AnyObject).perform(allocSel)?.takeUnretainedValue() as? NSObject else {
-            completion(nil)
-            return
-        }
-        let initSel = NSSelectorFromString("initWithAvatar:")
-        guard rawGen.responds(to: initSel),
-              let genResult = rawGen.perform(initSel, with: avatar),
-              let generator = genResult.takeUnretainedValue() as? NSObject else {
+        guard let rawGen = ObjCRuntime.callClass(genCls, "alloc"),
+              let generator = ObjCRuntime.callReturning(rawGen, "initWithAvatar:", avatar) else {
             completion(nil)
             return
         }
         
-        let sel = NSSelectorFromString("stickerImageWithConfiguration:completionHandler:")
-        guard generator.responds(to: sel),
-              let method = class_getInstanceMethod(type(of: generator), sel) else {
-            completion(nil)
-            return
-        }
-        let imp = method_getImplementation(method)
-        
-        let block: @convention(block) (UIImage?) -> Void = { image in
-            completion(image)
-        }
+        let block: @convention(block) (UIImage?) -> Void = { image in completion(image) }
         
         typealias Func = @convention(c) (NSObject, Selector, NSObject, AnyObject) -> Void
-        let fn = unsafeBitCast(imp, to: Func.self)
-        fn(generator, sel, configuration, unsafeBitCast(block, to: AnyObject.self))
+        if let fn = ObjCRuntime.imp(generator, "stickerImageWithConfiguration:completionHandler:", as: Func.self) {
+            fn(generator, ObjCRuntime.sel("stickerImageWithConfiguration:completionHandler:"),
+               configuration, unsafeBitCast(block, to: AnyObject.self))
+        } else {
+            completion(nil)
+        }
     }
     
-    /// Take a snapshot view (UIView) with a background color.
-    /// Matches Apple's AVTView.snapshotViewUsingBackgroundColor:
     func snapshotView(backgroundColor: UIColor) -> UIView? {
         guard let view = avtView else { return nil }
-        
-        let sel = NSSelectorFromString("snapshotViewUsingBackgroundColor:")
-        guard view.responds(to: sel),
-              let result = view.perform(sel, with: backgroundColor) else { return nil }
-        return result.takeUnretainedValue() as? UIView
+        return ObjCRuntime.callReturning(view, "snapshotViewUsingBackgroundColor:", backgroundColor) as? UIView
     }
     
     // MARK: - Physics
     
-    /// Setup physics simulation on the avatar (hair, accessories dynamics).
-    /// Matches Apple's AVTAvatar.setupPhysics
-    /// Called automatically by AvatarKit when needed, but can be triggered manually.
     func setupPhysics() {
         guard let avatar = avatar else { return }
-        let sel = NSSelectorFromString("setupPhysicsIfNeeded")
-        if avatar.responds(to: sel) {
-            avatar.perform(sel)
-        }
+        ObjCRuntime.call(avatar, "setupPhysicsIfNeeded")
     }
     
-    // MARK: - Build TrackingInfo
+    // MARK: - ARFrame Pipeline
     
-    /// Apply an ARFrame directly using AvatarKit's own dataWithARFrame pipeline.
-    /// This is the most reliable path — AvatarKit handles all orientation mapping internally.
+    /// Apply an ARFrame directly using Apple's own dataWithARFrame pipeline.
+    /// Most reliable path — Apple handles all orientation mapping internally.
     func applyARFrame(_ frame: ARFrame) {
         guard let avatar = avatar, let trackInfoCls = trackInfoCls else { return }
         guard frame.anchors.contains(where: { $0 is ARFaceAnchor }) else { return }
         
         frameCount += 1
         
-        guard let meta = object_getClass(trackInfoCls) else { return }
-        
-        // Step 1: ARFrame → raw NSData via dataWithARFrame:captureOrientation:interfaceOrientation:
-        let dataSel = NSSelectorFromString("dataWithARFrame:captureOrientation:interfaceOrientation:")
-        guard let dataMethod = class_getClassMethod(meta, dataSel) else { return }
-        let dataImp = method_getImplementation(dataMethod)
+        // ARFrame → raw NSData
         typealias DataFunc = @convention(c) (AnyClass, Selector, AnyObject, Int, Int) -> NSObject?
-        let dataFn = unsafeBitCast(dataImp, to: DataFunc.self)
-        guard let data = dataFn(trackInfoCls, dataSel, frame, 4, 1) else { return }
-        
+        guard let dataFn = ObjCRuntime.classImp(trackInfoCls, "dataWithARFrame:captureOrientation:interfaceOrientation:", as: DataFunc.self) else { return }
+        guard let data = dataFn(trackInfoCls, ObjCRuntime.sel("dataWithARFrame:captureOrientation:interfaceOrientation:"), frame, 4, 1) else { return }
         guard let nsData = data as? Data else { return }
         
-        // Cache first frame's tracking data as baseline for presets
+        // Cache first frame as baseline
         if baselineTrackingData == nil {
             baselineTrackingData = nsData
-            nsData.withUnsafeBytes { raw in
-                let base = raw.baseAddress!
-                let qx = (base + StructLayout.orientation).load(as: Float.self)
-                let qy = (base + StructLayout.orientation + 4).load(as: Float.self)
-                let qz = (base + StructLayout.orientation + 8).load(as: Float.self)
-                let qw = (base + StructLayout.orientation + 12).load(as: Float.self)
-                let tx = (base + StructLayout.translation).load(as: Float.self)
-                let ty = (base + StructLayout.translation + 4).load(as: Float.self)
-                let tz = (base + StructLayout.translation + 8).load(as: Float.self)
-                print("[AvatarKit] ✅ Baseline captured (\(nsData.count) bytes) translation=(\(tx), \(ty), \(tz)) orientation=(\(qx), \(qy), \(qz), \(qw))")
-            }
+            let t = TrackingDataBuilder.readTranslation(from: nsData)
+            let q = TrackingDataBuilder.readOrientation(from: nsData)
+            print("[AvatarKit] ✅ Baseline captured (\(nsData.count) bytes) translation=(\(t.x), \(t.y), \(t.z)) orientation=(\(q.vector.x), \(q.vector.y), \(q.vector.z), \(q.vector.w))")
         }
         
-        // Log translation periodically to understand typical face position
-        if frameCount % 60 == 0 {
-            nsData.withUnsafeBytes { raw in
-                let base = raw.baseAddress!
-                let tx = (base + StructLayout.translation).load(as: Float.self)
-                let ty = (base + StructLayout.translation + 4).load(as: Float.self)
-                let tz = (base + StructLayout.translation + 8).load(as: Float.self)
-                print("[AvatarKit] Frame \(frameCount) translation=(\(tx), \(ty), \(tz))")
-            }
-        }
+        // NSData → AVTFaceTrackingInfo → apply
+        guard let trackingInfo = makeTrackingInfoFromData(nsData) else { return }
         
-        // Step 2: NSData → AVTFaceTrackingInfo via trackingInfoWithTrackingData:
-        let infoSel = NSSelectorFromString("trackingInfoWithTrackingData:")
-        guard let infoMethod = class_getClassMethod(meta, infoSel) else { return }
-        let infoImp = method_getImplementation(infoMethod)
+        ObjCRuntime.call(avatar, "applyBlendShapesWithTrackingInfo:", trackingInfo)
         
-        guard let trackingInfo = nsData.withUnsafeBytes({ rawBuf -> NSObject? in
-            typealias InfoFunc = @convention(c) (AnyClass, Selector, UnsafeRawPointer) -> NSObject?
-            let infoFn = unsafeBitCast(infoImp, to: InfoFunc.self)
-            return infoFn(trackInfoCls, infoSel, rawBuf.baseAddress!)
-        }) else { return }
-        
-        // Apply blendshapes + head pose
-        let bsSel = NSSelectorFromString("applyBlendShapesWithTrackingInfo:")
-        if avatar.responds(to: bsSel) {
-            avatar.perform(bsSel, with: trackingInfo)
-        }
-        
-        let poseSel = NSSelectorFromString("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:")
-        if avatar.responds(to: poseSel),
-           let poseMethod = class_getInstanceMethod(type(of: avatar), poseSel) {
-            let poseImp = method_getImplementation(poseMethod)
-            typealias PoseFunc = @convention(c) (NSObject, Selector, NSObject, Bool, NSObject?) -> Void
-            let poseFn = unsafeBitCast(poseImp, to: PoseFunc.self)
-            poseFn(avatar, poseSel, trackingInfo, false, nil)
+        typealias PoseFunc = @convention(c) (NSObject, Selector, NSObject, Bool, NSObject?) -> Void
+        if let fn = ObjCRuntime.imp(avatar, "applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:", as: PoseFunc.self) {
+            fn(avatar, ObjCRuntime.sel("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:"),
+               trackingInfo, false, nil)
         }
     }
     
-    // MARK: - Build TrackingInfo (baseline path)
-    
-    /// Build AVTFaceTrackingInfo by copying a real ARFrame's data and overwriting only blendshapes.
-    /// This preserves the correct orientation/translation/cameraSpace from a real tracking session.
-    private func buildTrackingInfoFromBaseline(_ tracking: AvatarFaceTracking) -> NSObject? {
-        guard let baseline = baselineTrackingData,
-              let trackInfoCls = trackInfoCls,
-              let meta = object_getClass(trackInfoCls) else { return nil }
-        
-        var buffer = [UInt8](baseline)
-        
-        buffer.withUnsafeMutableBytes { raw in
-            let base = raw.baseAddress!
-            
-            // Update timestamp
-            var ts = CACurrentMediaTime()
-            memcpy(base + StructLayout.timestamp, &ts, 8)
-            
-            // Apply user's head rotation on top of baseline orientation
-            if tracking.headRotation != simd_quatf(ix: 0, iy: 0, iz: 0, r: 1) {
-                var baseOrientation = simd_quatf()
-                memcpy(&baseOrientation, base + StructLayout.orientation, 16)
-                var newOrientation = baseOrientation * tracking.headRotation
-                memcpy(base + StructLayout.orientation, &newOrientation, 16)
-            }
-            
-            // Zero out blendshapes, then write preset values (ARIndex order)
-            memset(base + StructLayout.smoothBlendshapes, 0, StructLayout.blendshapeCount * 4)
-            memset(base + StructLayout.rawBlendshapes, 0, StructLayout.blendshapeCount * 4)
-            
-            for (name, value) in tracking.blendshapes {
-                guard let idx = Self.arkitBlendShapeOrder[name], idx < StructLayout.blendshapeCount else { continue }
-                var val = value
-                memcpy(base + StructLayout.smoothBlendshapes + idx * 4, &val, 4)
-                memcpy(base + StructLayout.rawBlendshapes + idx * 4, &val, 4)
-            }
-            
-            // TongueOut via parameters
-            if let tongueOut = tracking.blendshapes["tongueOut"], tongueOut > 0 {
-                var val = tongueOut
-                memcpy(base + StructLayout.smoothParams, &val, 4)
-                memcpy(base + StructLayout.rawParams, &val, 4)
-            } else {
-                // Zero out parameters
-                memset(base + StructLayout.smoothParams, 0, 4)
-                memset(base + StructLayout.rawParams, 0, 4)
-            }
-        }
-        
-        let sel = NSSelectorFromString("trackingInfoWithTrackingData:")
-        guard let method = class_getClassMethod(meta, sel) else { return nil }
-        let imp = method_getImplementation(method)
-        
-        return buffer.withUnsafeBytes { rawBuf -> NSObject? in
-            typealias Func = @convention(c) (AnyClass, Selector, UnsafeRawPointer) -> NSObject?
-            let fn = unsafeBitCast(imp, to: Func.self)
-            return fn(trackInfoCls, sel, rawBuf.baseAddress!)
-        }
-    }
-    
-    // MARK: - Build TrackingInfo (manual path)
+    // MARK: - TrackingInfo Construction
     
     /// Build AVTFaceTrackingInfo from our AvatarFaceTracking struct.
-    /// Layout matches Apple's internal AVTFaceTrackingData (480 bytes).
-    /// Offsets confirmed by Ghidra reverse engineering of AvatarKit.framework.
-    private func buildTrackingInfo(_ tracking: AvatarFaceTracking) -> NSObject? {
-        guard let trackInfoCls = trackInfoCls,
-              let meta = object_getClass(trackInfoCls) else { return nil }
-        
-        var buffer = [UInt8](repeating: 0, count: StructLayout.size)
-        
-        buffer.withUnsafeMutableBytes { raw in
-            let base = raw.baseAddress!
-            
-            // Timestamp (offset 0, Double)
-            var ts = CACurrentMediaTime()
-            memcpy(base + StructLayout.timestamp, &ts, 8)
-            
-            // Translation (offset 16, simd_float4 = 16 bytes, w=0)
-            var translation = SIMD4<Float>(0, 0, 0, 0)
-            memcpy(base + StructLayout.translation, &translation, 16)
-            
-            // Orientation quaternion (offset 32, simd_quatf = 16 bytes)
-            var orientation = tracking.headRotation
-            memcpy(base + StructLayout.orientation, &orientation, 16)
-            
-            // Tracking flag (offset 48, UInt8)
-            // 0 = non-AR mode: skips arOffset subtraction, position = translation directly
-            // 1 = AR mode: position = translation - convertPosition(arOffset, neckNode→rootJointNode)
-            // We use 0 because we're not in AR — arOffset would shift the avatar off-center
-            base.storeBytes(of: UInt8(0), toByteOffset: StructLayout.trackingFlag, as: UInt8.self)
-            
-            // Blendshapes: smooth (offset 52) and raw (offset 256), both in ARIndex order
-            for (name, value) in tracking.blendshapes {
-                guard let idx = Self.arkitBlendShapeOrder[name], idx < StructLayout.blendshapeCount else { continue }
-                var val = value
-                memcpy(base + StructLayout.smoothBlendshapes + idx * 4, &val, 4)
-                memcpy(base + StructLayout.rawBlendshapes + idx * 4, &val, 4)
-            }
-            
-            // TongueOut via parameters (offset 460/464)
-            if let tongueOut = tracking.blendshapes["tongueOut"], tongueOut > 0 {
-                var val = tongueOut
-                memcpy(base + StructLayout.smoothParams, &val, 4)
-                memcpy(base + StructLayout.rawParams, &val, 4)
-            }
+    /// Uses baseline path if available, otherwise manual construction.
+    private func makeTrackingInfo(from tracking: AvatarFaceTracking) -> NSObject? {
+        let buffer: [UInt8]
+        if let baseline = baselineTrackingData {
+            buffer = TrackingDataBuilder.buildFromBaseline(baseline, tracking: tracking)
+        } else {
+            buffer = TrackingDataBuilder.build(from: tracking)
         }
-        
-        // Convert raw bytes → AVTFaceTrackingInfo via trackingInfoWithTrackingData:
-        // This does: alloc AVTFaceTrackingInfo, memcpy(obj+0x10, data, 0x1e0)
-        let sel = NSSelectorFromString("trackingInfoWithTrackingData:")
-        guard let method = class_getClassMethod(meta, sel) else { return nil }
-        let imp = method_getImplementation(method)
-        
-        return buffer.withUnsafeBytes { rawBuf -> NSObject? in
-            typealias Func = @convention(c) (AnyClass, Selector, UnsafeRawPointer) -> NSObject?
-            let fn = unsafeBitCast(imp, to: Func.self)
-            return fn(trackInfoCls, sel, rawBuf.baseAddress!)
+        return trackingInfoFromBuffer(buffer)
+    }
+    
+    /// Convert raw NSData to AVTFaceTrackingInfo.
+    private func makeTrackingInfoFromData(_ data: Data) -> NSObject? {
+        guard let trackInfoCls = trackInfoCls else { return nil }
+        typealias Func = @convention(c) (AnyClass, Selector, UnsafeRawPointer) -> NSObject?
+        guard let fn = ObjCRuntime.classImp(trackInfoCls, "trackingInfoWithTrackingData:", as: Func.self) else { return nil }
+        return data.withUnsafeBytes { raw -> NSObject? in
+            fn(trackInfoCls, ObjCRuntime.sel("trackingInfoWithTrackingData:"), raw.baseAddress!)
         }
     }
     
-    // MARK: - Helpers
-    
-    private func setBool(on obj: NSObject, selector: String, value: Bool) {
-        let sel = NSSelectorFromString(selector)
-        guard obj.responds(to: sel) else { return }
-        let method = class_getInstanceMethod(type(of: obj), sel)!
-        let imp = method_getImplementation(method)
-        typealias Func = @convention(c) (NSObject, Selector, Bool) -> Void
-        unsafeBitCast(imp, to: Func.self)(obj, sel, value)
+    /// Convert a byte buffer to AVTFaceTrackingInfo via trackingInfoWithTrackingData:.
+    private func trackingInfoFromBuffer(_ buffer: [UInt8]) -> NSObject? {
+        guard let trackInfoCls = trackInfoCls else { return nil }
+        typealias Func = @convention(c) (AnyClass, Selector, UnsafeRawPointer) -> NSObject?
+        guard let fn = ObjCRuntime.classImp(trackInfoCls, "trackingInfoWithTrackingData:", as: Func.self) else { return nil }
+        return buffer.withUnsafeBytes { raw -> NSObject? in
+            fn(trackInfoCls, ObjCRuntime.sel("trackingInfoWithTrackingData:"), raw.baseAddress!)
+        }
     }
     
     // MARK: - Constants
     
-    static let availableAnimoji: [String] = [
-        "alien", "bear", "boar", "cat", "chicken", "cow",
+    nonisolated static let availableAnimoji: [String] = [
+        "alien", "bear", "boar", "cat", "chicken", "cow", "default",
         "dog", "dragon", "fox", "ghost", "giraffe", "koala",
         "lion", "monkey", "mouse", "octopus", "owl", "panda",
         "pig", "poo", "rabbit", "robot", "shark", "skull",
         "tiger", "trex", "unicorn"
     ]
-    
-    // MARK: - Struct Layout (from Ghidra reverse engineering of AvatarKit.framework)
-    //
-    // AVTFaceTrackingData: 480 bytes total
-    //
-    // Offset  Size  Description
-    // ------  ----  -----------
-    // 0       8     timestamp (Double)
-    // 8       12    translation (simd_float3)
-    // 20      12    unknown
-    // 32      16    orientation (simd_quatf x,y,z,w)
-    // 48      1     tracking valid flag (UInt8, 1=valid)
-    // 49      3     padding
-    // 52      204   smooth blendshapes (51 floats, ARIndex order)
-    // 256     8     metadata
-    // 264     204   raw blendshapes (51 floats, same order)
-    // 460     4     params_smooth (tongueOut)
-    // 464     4     params_raw (tongueOut)
-    // 468     12    padding
-    
-    /// Struct offsets confirmed by Ghidra disassembly of _applyBlendShapesWithTrackingData:
-    ///   add x2, x2, #0x34  → blendshapes at offset 52
-    ///   add x3, x8, #0x1cc → parameters at offset 460
-    /// Raw 480-byte tracking data layout.
-    /// Verified against iOS 26.4 AvatarKit disassembly:
-    ///   _applyHeadPoseWithTrackingData: reads translation at [ptr+0x10], orientation at [ptr+0x20], flag at [ptr+0x30]
-    ///   _applyBlendShapesWithTrackingData: reads blendshapes at [ptr+0x34], params at [ptr+0x1cc]
-    private enum StructLayout {
-        static let size = 480
-        static let timestamp = 0          // Double (8 bytes)
-        // 8 bytes padding for 16-byte alignment
-        static let translation = 16       // simd_float4 (16 bytes) — head position in camera space
-        static let orientation = 32       // simd_quatf (16 bytes) — head rotation
-        static let trackingFlag = 48      // UInt8 — 0=non-AR (no arOffset), 1=AR (subtract arOffset)
-        // 3 bytes padding
-        static let smoothBlendshapes = 52 // 51 × Float (204 bytes)
-        static let rawBlendshapes = 256   // 51 × Float (204 bytes)
-        static let smoothParams = 460     // Float (4 bytes) — tongueOut
-        static let rawParams = 464        // Float (4 bytes) — tongueOut
-        static let blendshapeCount = 51
-    }
-    
-    /// Blendshape index order matching _kAVTBlendShapeLocationFromARIndex.
-    /// Confirmed by Ghidra static analysis of _initialiseBlendshapeMappingIfNeeded_block_invoke.
-    /// This is the order used by _applyBlendShapes:parameters: to map array indices to morph targets.
-    /// NOT alphabetical — it's Apple's internal ARKit index order.
-    static let arkitBlendShapeOrder: [String: Int] = {
-        let names = [
-            // [0-7] Eyes: blink, squint, lookDown, lookIn
-            "eyeBlinkLeft", "eyeBlinkRight",
-            "eyeSquintLeft", "eyeSquintRight",
-            "eyeLookDownLeft", "eyeLookDownRight",
-            "eyeLookInLeft", "eyeLookInRight",
-            // [8-13] Eyes: wide, lookOut, lookUp
-            "eyeWideLeft", "eyeWideRight",
-            "eyeLookOutLeft", "eyeLookOutRight",
-            "eyeLookUpLeft", "eyeLookUpRight",
-            // [14-18] Brows
-            "browDownLeft", "browDownRight",
-            "browInnerUp",
-            "browOuterUpLeft", "browOuterUpRight",
-            // [19-23] Jaw
-            "jawOpen", "mouthClose",
-            "jawLeft", "jawRight", "jawForward",
-            // [24-29] Mouth upper/lower/roll
-            "mouthUpperUpLeft", "mouthUpperUpRight",
-            "mouthLowerDownLeft", "mouthLowerDownRight",
-            "mouthRollUpper", "mouthRollLower",
-            // [30-35] Mouth expressions 1
-            "mouthSmileLeft", "mouthSmileRight",
-            "mouthDimpleLeft", "mouthDimpleRight",
-            "mouthStretchLeft", "mouthStretchRight",
-            // [36-41] Mouth expressions 2
-            "mouthFrownLeft", "mouthFrownRight",
-            "mouthPressLeft", "mouthPressRight",
-            "mouthPucker", "mouthFunnel",
-            // [42-45] Mouth misc
-            "mouthLeft", "mouthRight",
-            "mouthShrugLower", "mouthShrugUpper",
-            // [46-50] Nose & cheeks
-            "noseSneerLeft", "noseSneerRight",
-            "cheekPuff",
-            "cheekSquintLeft", "cheekSquintRight",
-        ]
-        var map: [String: Int] = [:]
-        for (i, name) in names.enumerated() { map[name] = i }
-        return map
-    }()
-    
-    // MARK: - Debug: Dump scene camera info
-    
-    func dumpSceneInfo() {
-        guard let view = avtView else {
-            print("[AvatarKit] No avtView")
-            return
-        }
-        
-        // Check if it's a SCNView subclass
-        let scnViewClass = NSClassFromString("SCNView")
-        if let scnViewClass = scnViewClass, view.isKind(of: scnViewClass) {
-            print("[AvatarKit] AVTRecordView IS a SCNView subclass")
-            
-            // Get pointOfView
-            let povSel = NSSelectorFromString("pointOfView")
-            if view.responds(to: povSel),
-               let pov = view.perform(povSel)?.takeUnretainedValue() as? NSObject {
-                print("[AvatarKit] pointOfView: \(pov)")
-                
-                // Get position
-                let posSel = NSSelectorFromString("position")
-                if pov.responds(to: posSel) {
-                    // SCNVector3 is a struct, need to use method_getImplementation
-                    if let method = class_getInstanceMethod(type(of: pov), posSel) {
-                        let imp = method_getImplementation(method)
-                        typealias Func = @convention(c) (NSObject, Selector) -> SIMD3<Float>
-                        let fn = unsafeBitCast(imp, to: Func.self)
-                        let pos = fn(pov, posSel)
-                        print("[AvatarKit] Camera position: (\(pos.x), \(pos.y), \(pos.z))")
-                    }
-                }
-            } else {
-                print("[AvatarKit] No pointOfView")
-            }
-            
-            // Get scene
-            let sceneSel = NSSelectorFromString("scene")
-            if view.responds(to: sceneSel),
-               let scene = view.perform(sceneSel)?.takeUnretainedValue() as? NSObject {
-                print("[AvatarKit] Scene: \(scene)")
-                
-                // Get rootNode
-                let rootSel = NSSelectorFromString("rootNode")
-                if scene.responds(to: rootSel),
-                   let root = scene.perform(rootSel)?.takeUnretainedValue() as? NSObject {
-                    // List child nodes
-                    let childSel = NSSelectorFromString("childNodes")
-                    if root.responds(to: childSel),
-                       let children = root.perform(childSel)?.takeUnretainedValue() as? NSArray {
-                        print("[AvatarKit] Root has \(children.count) children:")
-                        for (i, child) in children.enumerated() {
-                            let node = child as! NSObject
-                            let nameSel = NSSelectorFromString("name")
-                            let name = node.responds(to: nameSel) ? (node.perform(nameSel)?.takeUnretainedValue() as? String ?? "nil") : "?"
-                            print("[AvatarKit]   [\(i)] \(name) - \(type(of: node))")
-                        }
-                    }
-                }
-            }
-        } else {
-            print("[AvatarKit] AVTRecordView is NOT a SCNView subclass, it's \(type(of: view))")
-            // List all properties
-            var count: UInt32 = 0
-            if let properties = class_copyPropertyList(type(of: view), &count) {
-                for i in 0..<Int(count) {
-                    let name = String(cString: property_getName(properties[i]))
-                    print("[AvatarKit]   property: \(name)")
-                }
-                free(properties)
-            }
-        }
-        
-        // Dump avatar arOffset
-        if let avatar = avatar {
-            let offsetSel = NSSelectorFromString("arOffset")
-            if avatar.responds(to: offsetSel),
-               let method = class_getInstanceMethod(type(of: avatar), offsetSel) {
-                let imp = method_getImplementation(method)
-                typealias Func = @convention(c) (NSObject, Selector) -> SIMD3<Float>
-                let fn = unsafeBitCast(imp, to: Func.self)
-                let offset = fn(avatar, offsetSel)
-                print("[AvatarKit] arOffset: (\(offset.x), \(offset.y), \(offset.z))")
-            }
-            
-            // Dump neckNode and rootJointNode positions
-            for nodeName in ["neckNode", "rootJointNode", "headNode", "avatarNode"] {
-                let sel = NSSelectorFromString(nodeName)
-                if avatar.responds(to: sel),
-                   let node = avatar.perform(sel)?.takeUnretainedValue() as? NSObject {
-                    let posSel = NSSelectorFromString("position")
-                    if let method = class_getInstanceMethod(type(of: node), posSel) {
-                        let imp = method_getImplementation(method)
-                        typealias Func = @convention(c) (NSObject, Selector) -> SIMD3<Float>
-                        let fn = unsafeBitCast(imp, to: Func.self)
-                        let pos = fn(node, posSel)
-                        print("[AvatarKit] \(nodeName) position: (\(pos.x), \(pos.y), \(pos.z))")
-                    }
-                }
-            }
-        }
-    }
 }
