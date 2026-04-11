@@ -28,6 +28,10 @@ public struct AvatarView: UIViewRepresentable {
     /// The closure receives a `(ARFrame) -> Void` that the caller should wire to their ARFrame source.
     var arFrameRegistration: ((@escaping (ARFrame) -> Void) -> Void)?
     
+    /// Optional: override blendshapes (e.g. from audio lip sync).
+    /// When non-nil, these blendshapes are applied instead of ARFrame/tracking.
+    var blendshapeOverrideValue: [String: Float]?
+    
     public init(
         animoji: String = "skull",
         tracking: AvatarFaceTracking = .init(),
@@ -42,6 +46,14 @@ public struct AvatarView: UIViewRepresentable {
     public func arFrameSource(_ registration: @escaping (@escaping (ARFrame) -> Void) -> Void) -> AvatarView {
         var copy = self
         copy.arFrameRegistration = registration
+        return copy
+    }
+    
+    /// Override blendshapes from an external source (e.g. audio lip sync).
+    /// When non-nil, these blendshapes take priority over ARFrame and tracking.
+    public func blendshapeOverride(_ blendshapes: [String: Float]?) -> AvatarView {
+        var copy = self
+        copy.blendshapeOverrideValue = blendshapes
         return copy
     }
     
@@ -70,6 +82,16 @@ public struct AvatarView: UIViewRepresentable {
         // Switch animoji if changed
         if container.currentAnimoji != animoji {
             container.loadAnimoji(animoji)
+        }
+        
+        // Blendshape override takes priority (e.g. audio lip sync)
+        if let override = blendshapeOverrideValue {
+            container.cancelTransition()
+            var overrideTracking = AvatarFaceTracking()
+            overrideTracking.blendshapes = override
+            container.bridge.applyTracking(overrideTracking)
+            context.coordinator.lastUsedARFrame = false
+            return
         }
         
         // If using direct ARFrame source, only apply SwiftUI fallback when ARFrames
