@@ -126,6 +126,7 @@ final class AvatarContainerView: UIView {
                 pendingAnimoji = nil
                 print("[AvatarKit] Loading pending animoji: \(pending)")
                 bridge.loadAnimoji(pending)
+                bridge.dumpSceneInfo()
             }
         } else if let avtView = subviews.first {
             avtView.frame = bounds

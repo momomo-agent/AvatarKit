@@ -78,6 +78,11 @@ final class AvatarBridge {
         
         // Default to front-facing neutral pose — AVTRecordView's default is back-of-head
         applyTracking(.neutral)
+        
+        // Dump scene info for debugging centering
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.dumpSceneInfo()
+        }
     }
     
     // MARK: - Apply Tracking Data
@@ -103,7 +108,8 @@ final class AvatarBridge {
         
         // Apply head pose — matches Apple's applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:
         // which reads quaternion at offset 32, translation at offset 16, flag at offset 48
-        // gazeCorrection=false, pointOfView=nil → uses quaternion directly (world space)
+        // pointOfView=nil → world-space orientation (no camera transform)
+        // The tracking flag in buildTrackingInfo controls arOffset behavior
         let poseSel = NSSelectorFromString("applyHeadPoseWithTrackingInfo:gazeCorrection:pointOfView:")
         if avatar.responds(to: poseSel),
            let poseMethod = class_getInstanceMethod(type(of: avatar), poseSel) {
@@ -465,7 +471,21 @@ final class AvatarBridge {
                 let qy = (base + StructLayout.orientation + 4).load(as: Float.self)
                 let qz = (base + StructLayout.orientation + 8).load(as: Float.self)
                 let qw = (base + StructLayout.orientation + 12).load(as: Float.self)
-                print("[AvatarKit] ✅ Baseline captured (\(nsData.count) bytes) orientation=(\(qx), \(qy), \(qz), \(qw))")
+                let tx = (base + StructLayout.translation).load(as: Float.self)
+                let ty = (base + StructLayout.translation + 4).load(as: Float.self)
+                let tz = (base + StructLayout.translation + 8).load(as: Float.self)
+                print("[AvatarKit] ✅ Baseline captured (\(nsData.count) bytes) translation=(\(tx), \(ty), \(tz)) orientation=(\(qx), \(qy), \(qz), \(qw))")
+            }
+        }
+        
+        // Log translation periodically to understand typical face position
+        if frameCount % 60 == 0 {
+            nsData.withUnsafeBytes { raw in
+                let base = raw.baseAddress!
+                let tx = (base + StructLayout.translation).load(as: Float.self)
+                let ty = (base + StructLayout.translation + 4).load(as: Float.self)
+                let tz = (base + StructLayout.translation + 8).load(as: Float.self)
+                print("[AvatarKit] Frame \(frameCount) translation=(\(tx), \(ty), \(tz))")
             }
         }
         
@@ -574,9 +594,9 @@ final class AvatarBridge {
             var ts = CACurrentMediaTime()
             memcpy(base + StructLayout.timestamp, &ts, 8)
             
-            // Translation (offset 8, simd_float3 = 12 bytes)
-            var translation = simd_float3(0, 0, 0)
-            memcpy(base + StructLayout.translation, &translation, 12)
+            // Translation (offset 16, simd_float4 = 16 bytes, w=0)
+            var translation = SIMD4<Float>(0, 0, 0, 0)
+            memcpy(base + StructLayout.translation, &translation, 16)
             
             // Orientation quaternion (offset 32, simd_quatf = 16 bytes)
             var orientation = tracking.headRotation
@@ -585,7 +605,7 @@ final class AvatarBridge {
             // Tracking valid flag (offset 48, UInt8)
             base.storeBytes(of: UInt8(1), toByteOffset: StructLayout.trackingFlag, as: UInt8.self)
             
-            // Blendshapes: smooth (offset 52) and raw (offset 264), both in ARIndex order
+            // Blendshapes: smooth (offset 52) and raw (offset 256), both in ARIndex order
             for (name, value) in tracking.blendshapes {
                 guard let idx = Self.arkitBlendShapeOrder[name], idx < StructLayout.blendshapeCount else { continue }
                 var val = value
@@ -657,14 +677,20 @@ final class AvatarBridge {
     /// Struct offsets confirmed by Ghidra disassembly of _applyBlendShapesWithTrackingData:
     ///   add x2, x2, #0x34  → blendshapes at offset 52
     ///   add x3, x8, #0x1cc → parameters at offset 460
+    /// Raw 480-byte tracking data layout.
+    /// Verified against iOS 26.4 AvatarKit disassembly:
+    ///   _applyHeadPoseWithTrackingData: reads translation at [ptr+0x10], orientation at [ptr+0x20], flag at [ptr+0x30]
+    ///   _applyBlendShapesWithTrackingData: reads blendshapes at [ptr+0x34], params at [ptr+0x1cc]
     private enum StructLayout {
         static let size = 480
         static let timestamp = 0          // Double (8 bytes)
-        static let translation = 8        // simd_float3 (12 bytes)
-        static let orientation = 32       // simd_quatf (16 bytes)
-        static let trackingFlag = 48      // UInt8 (1 byte)
+        // 8 bytes padding for 16-byte alignment
+        static let translation = 16       // simd_float4 (16 bytes) — head position in camera space
+        static let orientation = 32       // simd_quatf (16 bytes) — head rotation
+        static let trackingFlag = 48      // UInt8 (1 byte) — 1 = valid tracking
+        // 3 bytes padding
         static let smoothBlendshapes = 52 // 51 × Float (204 bytes)
-        static let rawBlendshapes = 264   // 51 × Float (204 bytes)
+        static let rawBlendshapes = 256   // 51 × Float (204 bytes)
         static let smoothParams = 460     // Float (4 bytes) — tongueOut
         static let rawParams = 464        // Float (4 bytes) — tongueOut
         static let blendshapeCount = 51
@@ -716,4 +742,106 @@ final class AvatarBridge {
         for (i, name) in names.enumerated() { map[name] = i }
         return map
     }()
+    
+    // MARK: - Debug: Dump scene camera info
+    
+    func dumpSceneInfo() {
+        guard let view = avtView else {
+            print("[AvatarKit] No avtView")
+            return
+        }
+        
+        // Check if it's a SCNView subclass
+        let scnViewClass = NSClassFromString("SCNView")
+        if let scnViewClass = scnViewClass, view.isKind(of: scnViewClass) {
+            print("[AvatarKit] AVTRecordView IS a SCNView subclass")
+            
+            // Get pointOfView
+            let povSel = NSSelectorFromString("pointOfView")
+            if view.responds(to: povSel),
+               let pov = view.perform(povSel)?.takeUnretainedValue() as? NSObject {
+                print("[AvatarKit] pointOfView: \(pov)")
+                
+                // Get position
+                let posSel = NSSelectorFromString("position")
+                if pov.responds(to: posSel) {
+                    // SCNVector3 is a struct, need to use method_getImplementation
+                    if let method = class_getInstanceMethod(type(of: pov), posSel) {
+                        let imp = method_getImplementation(method)
+                        typealias Func = @convention(c) (NSObject, Selector) -> SIMD3<Float>
+                        let fn = unsafeBitCast(imp, to: Func.self)
+                        let pos = fn(pov, posSel)
+                        print("[AvatarKit] Camera position: (\(pos.x), \(pos.y), \(pos.z))")
+                    }
+                }
+            } else {
+                print("[AvatarKit] No pointOfView")
+            }
+            
+            // Get scene
+            let sceneSel = NSSelectorFromString("scene")
+            if view.responds(to: sceneSel),
+               let scene = view.perform(sceneSel)?.takeUnretainedValue() as? NSObject {
+                print("[AvatarKit] Scene: \(scene)")
+                
+                // Get rootNode
+                let rootSel = NSSelectorFromString("rootNode")
+                if scene.responds(to: rootSel),
+                   let root = scene.perform(rootSel)?.takeUnretainedValue() as? NSObject {
+                    // List child nodes
+                    let childSel = NSSelectorFromString("childNodes")
+                    if root.responds(to: childSel),
+                       let children = root.perform(childSel)?.takeUnretainedValue() as? NSArray {
+                        print("[AvatarKit] Root has \(children.count) children:")
+                        for (i, child) in children.enumerated() {
+                            let node = child as! NSObject
+                            let nameSel = NSSelectorFromString("name")
+                            let name = node.responds(to: nameSel) ? (node.perform(nameSel)?.takeUnretainedValue() as? String ?? "nil") : "?"
+                            print("[AvatarKit]   [\(i)] \(name) - \(type(of: node))")
+                        }
+                    }
+                }
+            }
+        } else {
+            print("[AvatarKit] AVTRecordView is NOT a SCNView subclass, it's \(type(of: view))")
+            // List all properties
+            var count: UInt32 = 0
+            if let properties = class_copyPropertyList(type(of: view), &count) {
+                for i in 0..<Int(count) {
+                    let name = String(cString: property_getName(properties[i]))
+                    print("[AvatarKit]   property: \(name)")
+                }
+                free(properties)
+            }
+        }
+        
+        // Dump avatar arOffset
+        if let avatar = avatar {
+            let offsetSel = NSSelectorFromString("arOffset")
+            if avatar.responds(to: offsetSel),
+               let method = class_getInstanceMethod(type(of: avatar), offsetSel) {
+                let imp = method_getImplementation(method)
+                typealias Func = @convention(c) (NSObject, Selector) -> SIMD3<Float>
+                let fn = unsafeBitCast(imp, to: Func.self)
+                let offset = fn(avatar, offsetSel)
+                print("[AvatarKit] arOffset: (\(offset.x), \(offset.y), \(offset.z))")
+            }
+            
+            // Dump neckNode and rootJointNode positions
+            for nodeName in ["neckNode", "rootJointNode", "headNode", "avatarNode"] {
+                let sel = NSSelectorFromString(nodeName)
+                if avatar.responds(to: sel),
+                   let node = avatar.perform(sel)?.takeUnretainedValue() as? NSObject {
+                    let posSel = NSSelectorFromString("position")
+                    if let method = class_getInstanceMethod(type(of: node), posSel) {
+                        let imp = method_getImplementation(method)
+                        typealias Func = @convention(c) (NSObject, Selector) -> SIMD3<Float>
+                        let fn = unsafeBitCast(imp, to: Func.self)
+                        let pos = fn(node, posSel)
+                        print("[AvatarKit] \(nodeName) position: (\(pos.x), \(pos.y), \(pos.z))")
+                    }
+                }
+            }
+        }
+    }
 }
