@@ -4,24 +4,34 @@ import AvatarKit
 struct ContentView: View {
     @State private var bridge = AvatarBridge()
     @State private var character = "cat"
-    @State private var testLog: [String] = []
-    @State private var isTesting = false
     @State private var currentExpr = "neutral"
-    @State private var exprIndex = 0
     
-    private let characters = AvatarBridge.availableAnimoji
-    
-    private let presets: [(String, ExpressionPreset)] = [
-        ("😊 Smile", .smile),
-        ("😃 Grin", .grin),
-        ("😢 Sad", .sad),
-        ("😮 Surprised", .surprised),
-        ("😠 Angry", .angry),
-        ("😉 Wink", .winkLeft),
-        ("😛 Tongue", .tongueOut),
-        ("🤔 Think", .thinking),
-        ("😴 Sleepy", .sleepy),
-        ("😐 Neutral", .neutral),
+    // Extreme eye test presets
+    private let eyeTests: [(String, ExpressionPreset)] = [
+        ("Normal", .neutral),
+        ("Left Blink", ExpressionPreset(name: "leftBlink", blendshapes: [
+            "eyeBlinkLeft": 1.0,
+        ])),
+        ("Both Blink", ExpressionPreset(name: "bothBlink", blendshapes: [
+            "eyeBlinkLeft": 1.0, "eyeBlinkRight": 1.0,
+        ])),
+        ("Wide Open", ExpressionPreset(name: "wideOpen", blendshapes: [
+            "eyeWideLeft": 1.0, "eyeWideRight": 1.0,
+            "browOuterUpLeft": 1.0, "browOuterUpRight": 1.0,
+            "browInnerUp": 1.0,
+        ])),
+        ("Squint", ExpressionPreset(name: "squint", blendshapes: [
+            "eyeSquintLeft": 1.0, "eyeSquintRight": 1.0,
+        ])),
+        ("Look Up", ExpressionPreset(name: "lookUp", blendshapes: [
+            "eyeLookUpLeft": 1.0, "eyeLookUpRight": 1.0,
+        ])),
+        ("Look Down", ExpressionPreset(name: "lookDown", blendshapes: [
+            "eyeLookDownLeft": 1.0, "eyeLookDownRight": 1.0,
+        ])),
+        ("Surprised", .surprised),
+        ("Sleepy", .sleepy),
+        ("Wink L", .winkLeft),
     ]
     
     var body: some View {
@@ -42,7 +52,7 @@ struct ContentView: View {
             // Character picker
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(characters, id: \.self) { name in
+                    ForEach(AvatarBridge.availableAnimoji, id: \.self) { name in
                         Button(name) {
                             character = name
                             currentExpr = "loaded"
@@ -55,10 +65,11 @@ struct ContentView: View {
             }
             .padding(.vertical, 8)
             
-            // Expression buttons
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(presets, id: \.0) { label, preset in
+            // Eye test buttons
+            Text("Eye Tests").font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 8) {
+                    ForEach(eyeTests, id: \.0) { label, preset in
                         Button(label) {
                             bridge.applyPreset(preset)
                             currentExpr = preset.name
@@ -69,57 +80,6 @@ struct ContentView: View {
                 }
                 .padding(.horizontal)
             }
-            .padding(.vertical, 8)
-            
-            // Auto-cycle button — cycles through expressions every 2 seconds
-            HStack {
-                Button(isTesting ? "⏹ Stop" : "▶️ Auto Cycle") {
-                    isTesting.toggle()
-                    if isTesting { startCycle() }
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(.vertical, 8)
-            
-            // Test log
-            ScrollView {
-                Text(testLog.joined(separator: "\n"))
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-            }
-        }
-        .onAppear {
-            // Start auto-cycle after 1 second for automated testing
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                isTesting = true
-                startCycle()
-            }
-        }
-    }
-    
-    private func startCycle() {
-        guard isTesting else { return }
-        
-        let (label, preset) = presets[exprIndex % presets.count]
-        bridge.applyPreset(preset)
-        currentExpr = preset.name
-        testLog.append("[\(exprIndex)] \(label)")
-        
-        // Keep only last 10 lines
-        if testLog.count > 10 { testLog.removeFirst() }
-        
-        exprIndex += 1
-        
-        // After cycling all expressions, stop
-        if exprIndex >= presets.count {
-            isTesting = false
-            testLog.append("=== Cycle complete ===")
-            return
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            startCycle()
         }
     }
 }

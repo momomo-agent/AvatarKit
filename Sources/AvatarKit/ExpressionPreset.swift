@@ -18,6 +18,11 @@ public struct ExpressionPreset: Sendable {
     public let name: String
     public let blendshapes: [String: Float]
     
+    public init(name: String, blendshapes: [String: Float]) {
+        self.name = name
+        self.blendshapes = blendshapes
+    }
+    
     /// Convert to AvatarFaceTracking with optional head pose.
     ///
     /// All 51 blendshapes are explicitly set: unspecified ones default to 0

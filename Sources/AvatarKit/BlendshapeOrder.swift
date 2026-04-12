@@ -2,114 +2,152 @@ import Foundation
 
 // MARK: - Blendshape Order
 
-/// Apple's internal ARKit blendshape index order.
+/// Maps ARKit blendshape names to Apple's internal morph target indices.
 ///
-/// This is the canonical mapping used by `_applyBlendShapes:parameters:`
-/// to iterate MorphInfo[51]. NOT alphabetical, NOT the same as ARKit's order.
+/// The 480-byte tracking buffer uses Apple's internal ordering (51 slots),
+/// which differs from ARKit's `ARFaceAnchor.BlendShapeLocation` order.
 ///
-/// Evidence: runtime introspection via `blendShapeNameForARKitBlendShapeIndex:`
-/// on AVTAnimoji (iOS 26.4 simulator, 2026-04-12).
+/// Internal order was extracted from VFXMorpher targets on a loaded AVTAnimoji.
+/// The first 51 targets are face blendshapes; remaining targets are character-specific
+/// (e.g. ear dynamics for cat).
 ///
-/// Apple uses underscore naming internally (eyeBlink_L) but we map to
-/// ARKit's camelCase names (eyeBlinkLeft) for public API compatibility.
+/// Apple uses underscore naming internally (eyeBlink_L) but we accept both
+/// ARKit camelCase (eyeBlinkLeft) and Apple underscore (eyeBlink_L) formats.
 enum BlendshapeOrder {
     
-    /// Ordered names — index in this array = offset in the 480-byte buffer's
-    /// blendshape arrays (smooth at +0x34, raw at +0x100).
-    ///
-    /// Verified via `blendShapeNameForARKitBlendShapeIndex:` runtime call.
-    static let names: [String] = [
-        // [0-1] Eye blink
-        "eyeBlinkLeft",       // 0  (eyeBlink_L)
-        "eyeBlinkRight",      // 1  (eyeBlink_R)
-        // [2-3] Eye squint
-        "eyeSquintLeft",      // 2  (eyeSquint_L)
-        "eyeSquintRight",     // 3  (eyeSquint_R)
-        // [4-5] Eye look down
-        "eyeLookDownLeft",    // 4  (eyeLookDown_L)
-        "eyeLookDownRight",   // 5  (eyeLookDown_R)
-        // [6-7] Eye look in
-        "eyeLookInLeft",      // 6  (eyeLookIn_L)
-        "eyeLookInRight",     // 7  (eyeLookIn_R)
-        // [8-9] Eye wide
-        "eyeWideLeft",        // 8  (eyeWide_L)
-        "eyeWideRight",       // 9  (eyeWide_R)
-        // [10-11] Eye look out
-        "eyeLookOutLeft",     // 10 (eyeLookOut_L)
-        "eyeLookOutRight",    // 11 (eyeLookOut_R)
-        // [12-13] Eye look up
-        "eyeLookUpLeft",      // 12 (eyeLookUp_L)
-        "eyeLookUpRight",     // 13 (eyeLookUp_R)
-        // [14-15] Brow down
-        "browDownLeft",       // 14 (browDown_L)
-        "browDownRight",      // 15 (browDown_R)
-        // [16] Brow inner up
-        "browInnerUp",        // 16 (browInnerUp)
-        // [17-18] Brow outer up
-        "browOuterUpLeft",    // 17 (browOuterUp_L)
-        "browOuterUpRight",   // 18 (browOuterUp_R)
-        // [19] Jaw open
-        "jawOpen",            // 19 (jawOpen)
-        // [20] Mouth close
-        "mouthClose",         // 20 (mouthClose)
-        // [21-22] Jaw left/right
-        "jawLeft",            // 21 (jawLeft)
-        "jawRight",           // 22 (jawRight)
-        // [23] Jaw forward
-        "jawForward",         // 23 (jawForward)
-        // [24-25] Mouth upper up
-        "mouthUpperUpLeft",   // 24 (mouthUpperUp_L)
-        "mouthUpperUpRight",  // 25 (mouthUpperUp_R)
-        // [26-27] Mouth lower down
-        "mouthLowerDownLeft", // 26 (mouthLowerDown_L)
-        "mouthLowerDownRight",// 27 (mouthLowerDown_R)
-        // [28-29] Mouth roll
-        "mouthRollUpper",     // 28 (mouthRollUpper)
-        "mouthRollLower",     // 29 (mouthRollLower)
-        // [30-31] Mouth smile
-        "mouthSmileLeft",     // 30 (mouthSmile_L)
-        "mouthSmileRight",    // 31 (mouthSmile_R)
-        // [32-33] Mouth dimple
-        "mouthDimpleLeft",    // 32 (mouthDimple_L)
-        "mouthDimpleRight",   // 33 (mouthDimple_R)
-        // [34-35] Mouth stretch
-        "mouthStretchLeft",   // 34 (mouthStretch_L)
-        "mouthStretchRight",  // 35 (mouthStretch_R)
-        // [36-37] Mouth frown
-        "mouthFrownLeft",     // 36 (mouthFrown_L)
-        "mouthFrownRight",    // 37 (mouthFrown_R)
-        // [38-39] Mouth press
-        "mouthPressLeft",     // 38 (mouthPress_L)
-        "mouthPressRight",    // 39 (mouthPress_R)
-        // [40] Mouth pucker
-        "mouthPucker",        // 40 (mouthPucker)
-        // [41] Mouth funnel
-        "mouthFunnel",        // 41 (mouthFunnel)
-        // [42-43] Mouth left/right
-        "mouthLeft",          // 42 (mouthLeft)
-        "mouthRight",         // 43 (mouthRight)
-        // [44-45] Mouth shrug
-        "mouthShrugLower",    // 44 (mouthShrugLower)
-        "mouthShrugUpper",    // 45 (mouthShrugUpper)
-        // [46-47] Nose sneer
-        "noseSneerLeft",      // 46 (noseSneer_L)
-        "noseSneerRight",     // 47 (noseSneer_R)
-        // [48] Cheek puff
-        "cheekPuff",          // 48 (cheekPuff)
-        // [49-50] Cheek squint
-        "cheekSquintLeft",    // 49 (cheekSquint_L)
-        "cheekSquintRight",   // 50 (cheekSquint_R)
+    /// Apple's internal morph target order (first 51 slots in the tracking buffer).
+    /// Extracted from VFXMorpher.targets on AVTAnimoji.
+    static let order: [String] = [
+        "browDown_L",         // 0
+        "browDown_R",         // 1
+        "browInnerUp",        // 2
+        "browOuterUp_L",      // 3
+        "browOuterUp_R",      // 4
+        "cheekSquint_L",      // 5
+        "cheekSquint_R",      // 6
+        "mouthShrugLower",    // 7
+        "mouthShrugUpper",    // 8
+        "eyeBlink_L",         // 9
+        "eyeBlink_R",         // 10
+        "eyeLookDown_L",      // 11
+        "eyeLookDown_R",      // 12
+        "eyeLookIn_L",        // 13
+        "eyeLookIn_R",        // 14
+        "eyeWide_L",          // 15
+        "eyeWide_R",          // 16
+        "eyeLookOut_L",       // 17
+        "eyeLookOut_R",       // 18
+        "eyeSquint_L",        // 19
+        "eyeSquint_R",        // 20
+        "eyeLookUp_L",        // 21
+        "eyeLookUp_R",        // 22
+        "jawForward",         // 23
+        "jawLeft",            // 24
+        "jawOpen",            // 25
+        "jawRight",           // 26
+        "mouthFunnel",        // 27
+        "mouthRollLower",     // 28
+        "mouthLowerDown_L",   // 29
+        "mouthLowerDown_R",   // 30
+        "mouthPucker",        // 31
+        "mouthStretch_L",     // 32
+        "mouthStretch_R",     // 33
+        "mouthClose",         // 34
+        "mouthRollUpper",     // 35
+        "mouthUpperUp_L",     // 36
+        "mouthUpperUp_R",     // 37
+        "mouthDimple_L",      // 38
+        "mouthDimple_R",      // 39
+        "mouthFrown_L",       // 40
+        "mouthFrown_R",       // 41
+        "mouthLeft",          // 42
+        "mouthPress_L",       // 43
+        "mouthPress_R",       // 44
+        "mouthRight",         // 45
+        "mouthSmile_L",       // 46
+        "mouthSmile_R",       // 47
+        "cheekPuff",          // 48
+        "noseSneer_L",        // 49
+        "noseSneer_R",        // 50
     ]
     
-    /// Name → index lookup.
-    static let nameToIndex: [String: Int] = {
-        var map: [String: Int] = [:]
-        for (i, name) in names.enumerated() { map[name] = i }
+    /// ARKit camelCase → Apple underscore name mapping.
+    private static let arkitToApple: [String: String] = [
+        "browDownLeft": "browDown_L",
+        "browDownRight": "browDown_R",
+        "browInnerUp": "browInnerUp",
+        "browOuterUpLeft": "browOuterUp_L",
+        "browOuterUpRight": "browOuterUp_R",
+        "cheekSquintLeft": "cheekSquint_L",
+        "cheekSquintRight": "cheekSquint_R",
+        "mouthShrugLower": "mouthShrugLower",
+        "mouthShrugUpper": "mouthShrugUpper",
+        "eyeBlinkLeft": "eyeBlink_L",
+        "eyeBlinkRight": "eyeBlink_R",
+        "eyeLookDownLeft": "eyeLookDown_L",
+        "eyeLookDownRight": "eyeLookDown_R",
+        "eyeLookInLeft": "eyeLookIn_L",
+        "eyeLookInRight": "eyeLookIn_R",
+        "eyeWideLeft": "eyeWide_L",
+        "eyeWideRight": "eyeWide_R",
+        "eyeLookOutLeft": "eyeLookOut_L",
+        "eyeLookOutRight": "eyeLookOut_R",
+        "eyeSquintLeft": "eyeSquint_L",
+        "eyeSquintRight": "eyeSquint_R",
+        "eyeLookUpLeft": "eyeLookUp_L",
+        "eyeLookUpRight": "eyeLookUp_R",
+        "jawForward": "jawForward",
+        "jawLeft": "jawLeft",
+        "jawOpen": "jawOpen",
+        "jawRight": "jawRight",
+        "mouthFunnel": "mouthFunnel",
+        "mouthRollLower": "mouthRollLower",
+        "mouthLowerDownLeft": "mouthLowerDown_L",
+        "mouthLowerDownRight": "mouthLowerDown_R",
+        "mouthPucker": "mouthPucker",
+        "mouthStretchLeft": "mouthStretch_L",
+        "mouthStretchRight": "mouthStretch_R",
+        "mouthClose": "mouthClose",
+        "mouthRollUpper": "mouthRollUpper",
+        "mouthUpperUpLeft": "mouthUpperUp_L",
+        "mouthUpperUpRight": "mouthUpperUp_R",
+        "mouthDimpleLeft": "mouthDimple_L",
+        "mouthDimpleRight": "mouthDimple_R",
+        "mouthFrownLeft": "mouthFrown_L",
+        "mouthFrownRight": "mouthFrown_R",
+        "mouthLeft": "mouthLeft",
+        "mouthPressLeft": "mouthPress_L",
+        "mouthPressRight": "mouthPress_R",
+        "mouthRight": "mouthRight",
+        "mouthSmileLeft": "mouthSmile_L",
+        "mouthSmileRight": "mouthSmile_R",
+        "cheekPuff": "cheekPuff",
+        "noseSneerLeft": "noseSneer_L",
+        "noseSneerRight": "noseSneer_R",
+    ]
+    
+    /// Precomputed index lookup (both ARKit camelCase and Apple underscore names).
+    private static let indexMap: [String: Int] = {
+        var map = [String: Int]()
+        // Apple underscore names
+        for (i, name) in order.enumerated() {
+            map[name] = i
+        }
+        // ARKit camelCase names
+        for (arkit, apple) in arkitToApple {
+            if let idx = map[apple] {
+                map[arkit] = idx
+            }
+        }
         return map
     }()
     
     /// Look up the buffer index for a blendshape name.
+    /// Accepts both ARKit camelCase and Apple underscore formats.
     static func index(of name: String) -> Int? {
-        nameToIndex[name]
+        indexMap[name]
     }
+    
+    /// All blendshape names in Apple's internal order.
+    static var names: [String] { order }
 }

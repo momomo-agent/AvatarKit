@@ -103,30 +103,50 @@ public final class AvatarBridge {
     
     /// Apply face tracking data to the loaded animoji.
     ///
-    /// Uses the private `_applyBlendShapesWithTrackingData:` (428-byte struct)
-    /// and `_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:` directly,
-    /// matching their exact type-encoded struct layouts.
+    /// Calls `_applyBlendShapesWithTrackingData:` and
+    /// `_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:` directly
+    /// with the 480-byte tracking struct.
     ///
-    /// Falls back to `updatePoseWithFaceTrackingData:applySmoothing:` (480-byte NSData)
-    /// only if the direct methods are unavailable.
+    /// Falls back to `updatePoseWithFaceTrackingData:applySmoothing:` (NSData wrapper)
+    /// if the direct methods are unavailable.
     public func applyTracking(_ tracking: AvatarFaceTracking) {
         guard let animoji else { return }
         let obj = animoji as AnyObject
         
-        // Primary path: direct _applyBlendShapes + _applyHeadPose
-        let blendData = TrackingDataBuilder.buildBlendShapeData(from: tracking)
-        let didApplyBlend = applyBlendshapesDirect(obj, data: blendData)
-        let didApplyPose = applyHeadPoseDirect(obj, data: blendData)
+        let data = TrackingDataBuilder.build(from: tracking)
         
-        if didApplyBlend { return }
+        // Primary: direct struct pointer calls (avoids NSData overhead)
+        var applied = false
         
-        // Fallback: updatePoseWithFaceTrackingData (480-byte NSData)
-        let fullData = TrackingDataBuilder.buildFullPoseData(from: tracking)
-        let sel = NSSelectorFromString("updatePoseWithFaceTrackingData:applySmoothing:")
-        if obj.responds(to: sel),
-           let imp = class_getMethodImplementation(type(of: obj), sel) {
-            typealias UpdateFunc = @convention(c) (AnyObject, Selector, NSData, Bool) -> Void
-            unsafeBitCast(imp, to: UpdateFunc.self)(obj, sel, fullData as NSData, false)
+        data.withUnsafeBytes { raw in
+            guard let ptr = raw.baseAddress else { return }
+            
+            // Apply blendshapes
+            let blendSel = NSSelectorFromString("_applyBlendShapesWithTrackingData:")
+            if obj.responds(to: blendSel),
+               let imp = class_getMethodImplementation(type(of: obj), blendSel) {
+                typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer) -> Void
+                unsafeBitCast(imp, to: Func.self)(obj, blendSel, ptr)
+                applied = true
+            }
+            
+            // Apply head pose
+            let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
+            if obj.responds(to: poseSel),
+               let imp = class_getMethodImplementation(type(of: obj), poseSel) {
+                typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
+                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
+            }
+        }
+        
+        // Fallback: NSData wrapper
+        if !applied {
+            let sel = NSSelectorFromString("updatePoseWithFaceTrackingData:applySmoothing:")
+            if obj.responds(to: sel),
+               let imp = class_getMethodImplementation(type(of: obj), sel) {
+                typealias UpdateFunc = @convention(c) (AnyObject, Selector, NSData, Bool) -> Void
+                unsafeBitCast(imp, to: UpdateFunc.self)(obj, sel, data as NSData, false)
+            }
         }
     }
     
@@ -159,41 +179,5 @@ public final class AvatarBridge {
         let sel = NSSelectorFromString("avatarNode")
         guard (animoji as AnyObject).responds(to: sel) else { return nil }
         return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
-    }
-    
-    // MARK: - Private: Direct API Calls
-    
-    /// Call `_applyBlendShapesWithTrackingData:` with the 428-byte struct.
-    /// Returns true if the method was found and called.
-    @discardableResult
-    private func applyBlendshapesDirect(_ obj: AnyObject, data: Data) -> Bool {
-        let sel = NSSelectorFromString("_applyBlendShapesWithTrackingData:")
-        guard obj.responds(to: sel),
-              let imp = class_getMethodImplementation(type(of: obj), sel)
-        else { return false }
-        
-        data.withUnsafeBytes { raw in
-            guard let ptr = raw.baseAddress else { return }
-            typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer) -> Void
-            unsafeBitCast(imp, to: Func.self)(obj, sel, ptr)
-        }
-        return true
-    }
-    
-    /// Call `_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:` with the 428-byte struct.
-    /// Returns true if the method was found and called.
-    @discardableResult
-    private func applyHeadPoseDirect(_ obj: AnyObject, data: Data) -> Bool {
-        let sel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
-        guard obj.responds(to: sel),
-              let imp = class_getMethodImplementation(type(of: obj), sel)
-        else { return false }
-        
-        data.withUnsafeBytes { raw in
-            guard let ptr = raw.baseAddress else { return }
-            typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-            unsafeBitCast(imp, to: Func.self)(obj, sel, ptr, false, nil)
-        }
-        return true
     }
 }
