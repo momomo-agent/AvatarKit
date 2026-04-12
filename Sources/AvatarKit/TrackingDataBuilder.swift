@@ -19,10 +19,6 @@ import simd
 /// +0x1CC Float    smooth tongue parameter
 /// +0x1D0 Float    raw tongue parameter
 /// ```
-///
-/// Note: `_applyBlendShapesWithTrackingData:` also takes a pointer to this
-/// same 480-byte struct (type encoding omits translation/orientation types
-/// but the struct size is identical).
 enum TrackingDataBuilder {
     
     static let bufferSize = 480
@@ -38,16 +34,26 @@ enum TrackingDataBuilder {
             var ts = tracking.timestamp
             memcpy(ptr, &ts, 8)
             
+            // Translation at +0x08 (3 floats)
+            var tx = tracking.headTranslation.x
+            var ty = tracking.headTranslation.y
+            var tz = tracking.headTranslation.z
+            memcpy(ptr + 0x08, &tx, 4)
+            memcpy(ptr + 0x0C, &ty, 4)
+            memcpy(ptr + 0x10, &tz, 4)
+            
             // Orientation quaternion at +0x20
-            let q = tracking.headRotation.quaternion
+            // Prefer raw quaternion from ARKit (preserves roll, avoids euler artifacts)
+            let q = tracking.rawQuaternion ?? tracking.headRotation.quaternion
             var ix = q.imag.x, iy = q.imag.y, iz = q.imag.z, r = q.real
             memcpy(ptr + 0x20, &ix, 4)
             memcpy(ptr + 0x24, &iy, 4)
             memcpy(ptr + 0x28, &iz, 4)
             memcpy(ptr + 0x2C, &r, 4)
             
-            // cameraSpace = false — don't reposition head from translation
-            ptr.storeBytes(of: UInt8(0), toByteOffset: 0x30, as: UInt8.self)
+            // cameraSpace flag: 1 for camera-relative modes, 0 for world
+            let cameraFlag: UInt8 = tracking.coordinateSpace == .world ? 0 : 1
+            ptr.storeBytes(of: cameraFlag, toByteOffset: 0x30, as: UInt8.self)
             
             // Blendshapes: all 51 slots explicitly set (0 for unspecified)
             writeBlendshapes(ptr, tracking.blendshapes)
@@ -62,15 +68,12 @@ enum TrackingDataBuilder {
     // MARK: - Private
     
     private static func writeBlendshapes(_ ptr: UnsafeMutableRawPointer, _ values: [String: Float]) {
-        // Initialize all 51 slots to 0 (not -1 sentinel)
-        // This ensures previous expression state is fully cleared
         for i in 0..<51 {
             var zero: Float = 0
             memcpy(ptr + 0x34 + i * 4, &zero, 4)
             memcpy(ptr + 0x100 + i * 4, &zero, 4)
         }
         
-        // Write provided values at correct indices
         for (name, value) in values {
             guard name != "tongueOut" else { continue }
             guard let idx = BlendshapeOrder.index(of: name) else { continue }

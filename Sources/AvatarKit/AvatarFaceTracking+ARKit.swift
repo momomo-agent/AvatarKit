@@ -2,43 +2,57 @@ import ARKit
 
 extension AvatarFaceTracking {
     
-    /// Create tracking data from an ARFrame.
-    public init(arFrame: ARFrame) {
-        let faceAnchor = arFrame.anchors.compactMap { $0 as? ARFaceAnchor }.first
-        
-        var bs: [String: Float] = [:]
-        if let faceAnchor {
-            for (location, value) in faceAnchor.blendShapes {
-                bs[location.rawValue] = value.floatValue
-            }
-        }
-        
-        let q = faceAnchor.map { simd_quatf($0.transform) } ?? simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
-        let pitch = atan2(2 * (q.real * q.imag.x + q.imag.y * q.imag.z),
-                          1 - 2 * (q.imag.x * q.imag.x + q.imag.y * q.imag.y)) * 180 / .pi
-        let yaw = asin(max(-1, min(1, 2 * (q.real * q.imag.y - q.imag.z * q.imag.x)))) * 180 / .pi
-        
-        self.blendshapes = bs
-        self.headRotation = HeadRotation(pitch: pitch, yaw: yaw)
-        self.timestamp = CACurrentMediaTime()
-    }
-    
-    /// Create tracking data from an ARFaceAnchor.
-    public init(faceAnchor: ARFaceAnchor) {
+    /// World-space tracking. Avatar rotates when you and phone move together.
+    public init(faceAnchor: ARFaceAnchor, worldSpace: Bool = true) {
         var bs: [String: Float] = [:]
         for (location, value) in faceAnchor.blendShapes {
             bs[location.rawValue] = value.floatValue
         }
         
+        // Pass raw quaternion directly — AvatarKit handles front-camera mirroring internally
         let q = simd_quatf(faceAnchor.transform)
-        // Mirror for front camera: negate x and z
-        let mirrored = simd_quatf(ix: -q.imag.x, iy: q.imag.y, iz: -q.imag.z, r: q.real)
-        let pitch = atan2(2 * (mirrored.real * mirrored.imag.x + mirrored.imag.y * mirrored.imag.z),
-                          1 - 2 * (mirrored.imag.x * mirrored.imag.x + mirrored.imag.y * mirrored.imag.y)) * 180 / .pi
-        let yaw = asin(max(-1, min(1, 2 * (mirrored.real * mirrored.imag.y - mirrored.imag.z * mirrored.imag.x)))) * 180 / .pi
+        let t = faceAnchor.transform.columns.3
         
         self.blendshapes = bs
-        self.headRotation = HeadRotation(pitch: pitch, yaw: yaw)
+        self.headRotation = .zero // kept for debug display
+        self.rawQuaternion = q
+        self.headTranslation = SIMD3(t.x, t.y, t.z)
+        self.coordinateSpace = .world
+        self.timestamp = CACurrentMediaTime()
+    }
+    
+    /// Camera-relative, rotation only. Avatar stays still when you and phone move together.
+    public init(faceAnchor: ARFaceAnchor, cameraRelativeTransform: simd_float4x4) {
+        var bs: [String: Float] = [:]
+        for (location, value) in faceAnchor.blendShapes {
+            bs[location.rawValue] = value.floatValue
+        }
+        
+        let q = simd_quatf(cameraRelativeTransform)
+        
+        self.blendshapes = bs
+        self.headRotation = .zero
+        self.rawQuaternion = q
+        self.headTranslation = .zero
+        self.coordinateSpace = .cameraRotationOnly
+        self.timestamp = CACurrentMediaTime()
+    }
+    
+    /// Camera-relative with translation. Avatar follows your head position relative to camera.
+    public init(faceAnchor: ARFaceAnchor, cameraRelativeTransform: simd_float4x4, withTranslation: Bool) {
+        var bs: [String: Float] = [:]
+        for (location, value) in faceAnchor.blendShapes {
+            bs[location.rawValue] = value.floatValue
+        }
+        
+        let q = simd_quatf(cameraRelativeTransform)
+        let t = cameraRelativeTransform.columns.3
+        
+        self.blendshapes = bs
+        self.headRotation = .zero
+        self.rawQuaternion = q
+        self.headTranslation = SIMD3(t.x, t.y, t.z)
+        self.coordinateSpace = .cameraFull
         self.timestamp = CACurrentMediaTime()
     }
 }

@@ -6,9 +6,19 @@ import QuartzCore
 
 /// Public face tracking data — the input to AvatarBridge.applyTracking().
 ///
-/// Holds ARKit-compatible blendshape values and head orientation.
+/// Holds ARKit-compatible blendshape values, head orientation, and optional translation.
 /// Can be constructed from ARFaceAnchor, preset expressions, or manual values.
 public struct AvatarFaceTracking: Sendable {
+    
+    /// Coordinate space for head transform.
+    public enum CoordinateSpace: Sendable {
+        /// World coordinates (gravity-aligned). Avatar rotates when you and phone move together.
+        case world
+        /// Camera-relative, rotation only. Avatar stays still when you and phone move together.
+        case cameraRotationOnly
+        /// Camera-relative with translation. Avatar follows your position relative to the camera.
+        case cameraFull
+    }
     
     /// Blendshape name → weight (0..1). Uses ARKit camelCase names.
     /// Missing keys use the -1.0 sentinel (skip/preserve previous value).
@@ -16,6 +26,16 @@ public struct AvatarFaceTracking: Sendable {
     
     /// Head orientation.
     public var headRotation: HeadRotation
+    
+    /// Raw quaternion from ARKit (if available). Takes priority over headRotation.quaternion
+    /// in TrackingDataBuilder to avoid euler decomposition artifacts.
+    public var rawQuaternion: simd_quatf?
+    
+    /// Head translation (x, y, z) in meters. Only used in `.cameraFull` mode.
+    public var headTranslation: SIMD3<Float>
+    
+    /// Which coordinate space this tracking data uses.
+    public var coordinateSpace: CoordinateSpace
     
     /// Frame timestamp (CACurrentMediaTime).
     public var timestamp: Double
@@ -50,10 +70,16 @@ public struct AvatarFaceTracking: Sendable {
     public init(
         blendshapes: [String: Float] = [:],
         headRotation: HeadRotation = .zero,
+        rawQuaternion: simd_quatf? = nil,
+        headTranslation: SIMD3<Float> = .zero,
+        coordinateSpace: CoordinateSpace = .world,
         timestamp: Double = CACurrentMediaTime()
     ) {
         self.blendshapes = blendshapes
         self.headRotation = headRotation
+        self.rawQuaternion = rawQuaternion
+        self.headTranslation = headTranslation
+        self.coordinateSpace = coordinateSpace
         self.timestamp = timestamp
     }
 }
