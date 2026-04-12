@@ -5,19 +5,19 @@ import simd
 
 /// Builds the 480-byte tracking data buffer consumed by AvatarKit.
 ///
-/// Layout (verified via AVTFaceTrackingInfo ivar, struct_size = 480):
+/// Layout (verified via AVTFaceTrackingInfo ivar + disassembly):
 /// ```
-/// +0x00  Double   timestamp (CACurrentMediaTime)
-/// +0x08  Float×3  translation (x, y, z)
-/// +0x14  Float    padding
-/// +0x18  Float    padding
-/// +0x1C  Float    padding
-/// +0x20  Float×4  orientation quaternion (ix, iy, iz, r)
-/// +0x30  UInt8    cameraSpace flag
-/// +0x34  Float×51 smooth blendshapes (Apple order)
-/// +0x100 Float×51 raw blendshapes (Apple order)
-/// +0x1CC Float    smooth tongue parameter
-/// +0x1D0 Float    raw tongue parameter
+/// 0x00   8B   timestamp          Double
+/// 0x08   8B   (padding)          alignment to 16 bytes
+/// 0x10  16B   translation        simd_float4 (x, y, z, w=0)
+/// 0x20  16B   orientation        simd_quatf (ix, iy, iz, r)
+/// 0x30   1B   cameraSpace        Bool
+/// 0x31   3B   (padding)
+/// 0x34 204B   smoothBlendshapes  Float × 51
+/// 0x100 204B  rawBlendshapes     Float × 51
+/// 0x1CC  4B   smoothParams       Float × 1 (tongueOut)
+/// 0x1D0  4B   rawParams          Float × 1 (tongueOut)
+/// 0x1D4 12B   (padding to 480)
 /// ```
 enum TrackingDataBuilder {
     
@@ -30,35 +30,32 @@ enum TrackingDataBuilder {
         buf.withUnsafeMutableBytes { raw in
             let ptr = raw.baseAddress!
             
-            // Timestamp
+            // Timestamp at +0x00
             var ts = tracking.timestamp
             memcpy(ptr, &ts, 8)
             
-            // Translation at +0x08 (3 floats)
-            var tx = tracking.headTranslation.x
-            var ty = tracking.headTranslation.y
-            var tz = tracking.headTranslation.z
-            memcpy(ptr + 0x08, &tx, 4)
-            memcpy(ptr + 0x0C, &ty, 4)
-            memcpy(ptr + 0x10, &tz, 4)
+            // +0x08 is padding (8 bytes for SIMD alignment)
             
-            // Orientation quaternion at +0x20
+            // Translation at +0x10 (simd_float4, 16 bytes)
+            var t = SIMD4<Float>(tracking.headTranslation.x,
+                                 tracking.headTranslation.y,
+                                 tracking.headTranslation.z,
+                                 0)
+            memcpy(ptr + 0x10, &t, 16)
+            
+            // Orientation quaternion at +0x20 (simd_quatf, 16 bytes)
             // Prefer raw quaternion from ARKit (preserves roll, avoids euler artifacts)
-            let q = tracking.rawQuaternion ?? tracking.headRotation.quaternion
-            var ix = q.imag.x, iy = q.imag.y, iz = q.imag.z, r = q.real
-            memcpy(ptr + 0x20, &ix, 4)
-            memcpy(ptr + 0x24, &iy, 4)
-            memcpy(ptr + 0x28, &iz, 4)
-            memcpy(ptr + 0x2C, &r, 4)
+            var q = tracking.rawQuaternion ?? tracking.headRotation.quaternion
+            memcpy(ptr + 0x20, &q, 16)
             
-            // cameraSpace flag: 1 for camera-relative modes, 0 for world
+            // cameraSpace flag at +0x30
             let cameraFlag: UInt8 = tracking.coordinateSpace == .world ? 0 : 1
             ptr.storeBytes(of: cameraFlag, toByteOffset: 0x30, as: UInt8.self)
             
-            // Blendshapes: all 51 slots explicitly set (0 for unspecified)
+            // Blendshapes at +0x34 (smooth) and +0x100 (raw)
             writeBlendshapes(ptr, tracking.blendshapes)
             
-            // Tongue parameter
+            // Tongue parameter at +0x1CC (smooth) and +0x1D0 (raw)
             writeTongue(ptr, tracking.blendshapes["tongueOut"])
         }
         
