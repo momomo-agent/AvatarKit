@@ -1,16 +1,14 @@
 import UIKit
-import SceneKit
 
 // MARK: - Avatar Container View
 
-/// UIKit container that hosts an SCNView for avatar rendering.
+/// UIKit container that hosts an AVTView for avatar rendering.
 ///
 /// Use this when you need UIKit integration or more control over
-/// the SceneKit view. For SwiftUI, use `AvatarView` instead.
+/// the rendering view. For SwiftUI, use `AvatarView` instead.
 public final class AvatarContainerView: UIView {
     
     public let bridge: AvatarBridge
-    public private(set) var scnView: SCNView?
     
     public init(bridge: AvatarBridge, frame: CGRect = .zero) {
         self.bridge = bridge
@@ -20,20 +18,17 @@ public final class AvatarContainerView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
     
-    /// Load a character and set up the SceneKit view.
+    /// Load a character and set up the rendering view.
     public func load(_ characterID: String) {
         guard bridge.load(characterID) else { return }
         
-        let view = SCNView(frame: bounds)
-        view.scene = bridge.scene
-        view.backgroundColor = .clear
-        view.antialiasingMode = .multisampling4X
-        view.isPlaying = true
-        view.autoenablesDefaultLighting = true
-        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        guard let avtView = bridge.avtView else { return }
+        avtView.frame = bounds
+        avtView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         
-        scnView?.removeFromSuperview()
-        addSubview(view)
-        scnView = view
+        if avtView.superview !== self {
+            avtView.removeFromSuperview()
+            addSubview(avtView)
+        }
     }
 }

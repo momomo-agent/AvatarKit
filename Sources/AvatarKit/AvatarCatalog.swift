@@ -23,8 +23,8 @@ public final class AvatarCatalog: @unchecked Sendable {
         guard let cls = NSClassFromString("AVTAnimoji") else { return [] }
         
         let sel = NSSelectorFromString("availableAnimojiNames")
-        guard cls.responds(to: sel),
-              let names = cls.perform(sel)?.takeUnretainedValue() as? [String]
+        guard (cls as AnyObject).responds(to: sel),
+              let names = (cls as AnyObject).perform(sel)?.takeUnretainedValue() as? [String]
         else { return [] }
         
         return names.map { Character(id: $0, name: $0.capitalized, type: .animoji) }

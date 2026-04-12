@@ -1,9 +1,11 @@
 import SwiftUI
-import SceneKit
 
 // MARK: - Avatar View
 
 /// SwiftUI view that displays an animated Animoji character.
+///
+/// Uses Apple's private AVTView (VFX-based renderer) for rendering.
+/// On iOS 18+, AvatarKit uses VFXNode/VFXView instead of SceneKit.
 ///
 /// Usage:
 /// ```swift
@@ -23,37 +25,37 @@ public struct AvatarView: UIViewRepresentable {
     let bridge: AvatarBridge
     let character: String
     var backgroundColor: UIColor
-    var antialiasingMode: SCNAntialiasingMode
     
     public init(
         bridge: AvatarBridge,
         character: String,
-        backgroundColor: UIColor = .clear,
-        antialiasingMode: SCNAntialiasingMode = .multisampling4X
+        backgroundColor: UIColor = .clear
     ) {
         self.bridge = bridge
         self.character = character
         self.backgroundColor = backgroundColor
-        self.antialiasingMode = antialiasingMode
     }
     
-    public func makeUIView(context: Context) -> SCNView {
+    public func makeUIView(context: Context) -> UIView {
         bridge.load(character)
         
-        let scnView = SCNView()
-        scnView.scene = bridge.scene
-        scnView.backgroundColor = backgroundColor
-        scnView.antialiasingMode = antialiasingMode
-        scnView.isPlaying = true
-        scnView.autoenablesDefaultLighting = true
+        guard let view = bridge.avtView else {
+            // Fallback: return empty view if AVTView unavailable
+            let fallback = UIView()
+            fallback.backgroundColor = backgroundColor
+            return fallback
+        }
         
-        return scnView
+        view.backgroundColor = backgroundColor
+        return view
     }
     
-    public func updateUIView(_ scnView: SCNView, context: Context) {
-        if scnView.scene !== bridge.scene {
-            scnView.scene = bridge.scene
+    public func updateUIView(_ uiView: UIView, context: Context) {
+        uiView.backgroundColor = backgroundColor
+        
+        // If character changed, reload
+        if bridge.characterID != character {
+            bridge.load(character)
         }
-        scnView.backgroundColor = backgroundColor
     }
 }

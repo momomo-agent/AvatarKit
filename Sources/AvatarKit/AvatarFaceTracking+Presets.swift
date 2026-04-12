@@ -13,8 +13,7 @@ extension AvatarFaceTracking {
             "mouthSmileLeft": 0.9, "mouthSmileRight": 0.9,
             "jawOpen": 0.3,
             "cheekSquintLeft": 0.3, "cheekSquintRight": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😃 Grinning Face with Big Eyes — excited smile, eyes wide
@@ -23,8 +22,7 @@ extension AvatarFaceTracking {
             "mouthSmileLeft": 0.9, "mouthSmileRight": 0.9,
             "jawOpen": 0.35,
             "eyeWideLeft": 0.5, "eyeWideRight": 0.5,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😄 Grinning Face with Smiling Eyes — happy smile, eyes squint
@@ -34,8 +32,7 @@ extension AvatarFaceTracking {
             "jawOpen": 0.3,
             "eyeSquintLeft": 0.6, "eyeSquintRight": 0.6,
             "cheekSquintLeft": 0.5, "cheekSquintRight": 0.5,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😁 Beaming Face with Smiling Eyes — teeth showing grin
@@ -45,8 +42,7 @@ extension AvatarFaceTracking {
             "jawOpen": 0.15,
             "eyeSquintLeft": 0.7, "eyeSquintRight": 0.7,
             "cheekSquintLeft": 0.6, "cheekSquintRight": 0.6,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😆 Grinning Squinting Face — laughing hard
@@ -57,16 +53,14 @@ extension AvatarFaceTracking {
             "eyeSquintLeft": 0.9, "eyeSquintRight": 0.9,
             "cheekSquintLeft": 0.7, "cheekSquintRight": 0.7,
             "noseSneerLeft": 0.3, "noseSneerRight": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 🙂 Slightly Smiling Face — subtle smile
     public static let slightSmile = AvatarFaceTracking(
         blendshapes: [
             "mouthSmileLeft": 0.4, "mouthSmileRight": 0.4,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😊 Smiling Face with Smiling Eyes — warm smile
@@ -75,8 +69,7 @@ extension AvatarFaceTracking {
             "mouthSmileLeft": 0.6, "mouthSmileRight": 0.6,
             "eyeSquintLeft": 0.5, "eyeSquintRight": 0.5,
             "cheekSquintLeft": 0.4, "cheekSquintRight": 0.4,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Wink / Playful
@@ -86,8 +79,7 @@ extension AvatarFaceTracking {
         blendshapes: [
             "mouthSmileLeft": 0.5, "mouthSmileRight": 0.5,
             "eyeBlinkRight": 0.9,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😜 Winking Face with Tongue
@@ -96,8 +88,7 @@ extension AvatarFaceTracking {
             "mouthSmileLeft": 0.5, "mouthSmileRight": 0.5,
             "eyeBlinkRight": 0.9,
             "tongueOut": 0.8,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😛 Face with Tongue
@@ -105,8 +96,7 @@ extension AvatarFaceTracking {
         blendshapes: [
             "mouthSmileLeft": 0.3, "mouthSmileRight": 0.3,
             "tongueOut": 0.9,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😝 Squinting Face with Tongue
@@ -115,8 +105,7 @@ extension AvatarFaceTracking {
             "eyeSquintLeft": 0.9, "eyeSquintRight": 0.9,
             "mouthSmileLeft": 0.4, "mouthSmileRight": 0.4,
             "tongueOut": 0.9,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Kiss / Pucker
@@ -126,16 +115,14 @@ extension AvatarFaceTracking {
         blendshapes: [
             "mouthPucker": 0.9,
             "eyeBlinkRight": 0.9,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😗 Kissing Face — puckered lips
     public static let kiss = AvatarFaceTracking(
         blendshapes: [
             "mouthPucker": 0.8,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😚 Kissing Face with Closed Eyes
@@ -144,8 +131,7 @@ extension AvatarFaceTracking {
             "mouthPucker": 0.8,
             "eyeBlinkLeft": 0.9, "eyeBlinkRight": 0.9,
             "eyeSquintLeft": 0.5, "eyeSquintRight": 0.5,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Surprised / Shocked
@@ -155,8 +141,7 @@ extension AvatarFaceTracking {
         blendshapes: [
             "jawOpen": 0.6,
             "eyeWideLeft": 0.4, "eyeWideRight": 0.4,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😲 Astonished Face — very surprised
@@ -166,8 +151,7 @@ extension AvatarFaceTracking {
             "eyeWideLeft": 0.9, "eyeWideRight": 0.9,
             "browInnerUp": 0.8,
             "browOuterUpLeft": 0.7, "browOuterUpRight": 0.7,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😳 Flushed Face — wide eyes, slight embarrassment
@@ -175,8 +159,7 @@ extension AvatarFaceTracking {
         blendshapes: [
             "eyeWideLeft": 0.8, "eyeWideRight": 0.8,
             "browInnerUp": 0.5,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😱 Face Screaming in Fear
@@ -187,8 +170,7 @@ extension AvatarFaceTracking {
             "browInnerUp": 0.9,
             "browOuterUpLeft": 0.8, "browOuterUpRight": 0.8,
             "cheekPuff": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Sad / Crying
@@ -198,8 +180,7 @@ extension AvatarFaceTracking {
         blendshapes: [
             "mouthFrownLeft": 0.5, "mouthFrownRight": 0.5,
             "browInnerUp": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     /// ☹️ Frowning Face
@@ -208,8 +189,7 @@ extension AvatarFaceTracking {
             "mouthFrownLeft": 0.8, "mouthFrownRight": 0.8,
             "browInnerUp": 0.5,
             "browDownLeft": 0.3, "browDownRight": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😢 Crying Face
@@ -218,8 +198,7 @@ extension AvatarFaceTracking {
             "mouthFrownLeft": 0.7, "mouthFrownRight": 0.7,
             "browInnerUp": 0.7,
             "eyeSquintLeft": 0.4, "eyeSquintRight": 0.4,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😭 Loudly Crying Face
@@ -230,8 +209,7 @@ extension AvatarFaceTracking {
             "browInnerUp": 0.9,
             "eyeSquintLeft": 0.8, "eyeSquintRight": 0.8,
             "cheekSquintLeft": 0.5, "cheekSquintRight": 0.5,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 🥺 Pleading Face — puppy eyes
@@ -241,8 +219,7 @@ extension AvatarFaceTracking {
             "browOuterUpLeft": 0.3, "browOuterUpRight": 0.3,
             "eyeWideLeft": 0.6, "eyeWideRight": 0.6,
             "mouthFrownLeft": 0.3, "mouthFrownRight": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😞 Disappointed Face
@@ -251,8 +228,7 @@ extension AvatarFaceTracking {
             "mouthFrownLeft": 0.6, "mouthFrownRight": 0.6,
             "browInnerUp": 0.4,
             "eyeLookDownLeft": 0.5, "eyeLookDownRight": 0.5,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Angry
@@ -264,8 +240,7 @@ extension AvatarFaceTracking {
             "mouthFrownLeft": 0.6, "mouthFrownRight": 0.6,
             "jawForward": 0.3,
             "noseSneerLeft": 0.4, "noseSneerRight": 0.4,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😡 Pouting Face — very angry
@@ -276,8 +251,7 @@ extension AvatarFaceTracking {
             "jawForward": 0.4,
             "noseSneerLeft": 0.6, "noseSneerRight": 0.6,
             "mouthPressLeft": 0.5, "mouthPressRight": 0.5,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😤 Face with Steam from Nose — determined/frustrated
@@ -287,8 +261,7 @@ extension AvatarFaceTracking {
             "mouthPressLeft": 0.6, "mouthPressRight": 0.6,
             "noseSneerLeft": 0.7, "noseSneerRight": 0.7,
             "jawForward": 0.2,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Skeptical / Thinking
@@ -299,8 +272,7 @@ extension AvatarFaceTracking {
             "browOuterUpRight": 0.9,
             "browDownLeft": 0.4,
             "eyeSquintLeft": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😏 Smirking Face — one-sided smile
@@ -309,8 +281,7 @@ extension AvatarFaceTracking {
             "mouthSmileRight": 0.7,
             "mouthSmileLeft": 0.1,
             "eyeSquintRight": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😒 Unamused Face
@@ -320,8 +291,7 @@ extension AvatarFaceTracking {
             "eyeSquintLeft": 0.4, "eyeSquintRight": 0.4,
             "browDownLeft": 0.3, "browDownRight": 0.3,
             "eyeLookDownLeft": 0.3, "eyeLookDownRight": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 🙄 Face with Rolling Eyes
@@ -329,16 +299,14 @@ extension AvatarFaceTracking {
         blendshapes: [
             "eyeLookUpLeft": 0.9, "eyeLookUpRight": 0.9,
             "mouthFrownLeft": 0.2, "mouthFrownRight": 0.2,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Neutral / Expressionless
     
     /// 😐 Neutral Face
     public static let neutral = AvatarFaceTracking(
-        blendshapes: [:],
-        isTracking: true
+        blendshapes: [:]
     )
     
     /// 😑 Expressionless Face — eyes half closed
@@ -346,8 +314,7 @@ extension AvatarFaceTracking {
         blendshapes: [
             "eyeBlinkLeft": 0.5, "eyeBlinkRight": 0.5,
             "mouthPressLeft": 0.3, "mouthPressRight": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Sleepy / Tired
@@ -358,8 +325,7 @@ extension AvatarFaceTracking {
             "eyeBlinkLeft": 1.0, "eyeBlinkRight": 1.0,
             "mouthClose": 0.5,
         ],
-        headRotation: simd_quatf(angle: 0.3, axis: simd_float3(0, 0, 1)), // slight head tilt
-        isTracking: true
+        headRotation: .init(roll: 17) // slight head tilt
     )
     
     /// 😪 Sleepy Face
@@ -368,8 +334,7 @@ extension AvatarFaceTracking {
             "eyeBlinkLeft": 0.7, "eyeBlinkRight": 0.7,
             "eyeSquintLeft": 0.5, "eyeSquintRight": 0.5,
             "mouthFrownLeft": 0.2, "mouthFrownRight": 0.2,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 🥱 Yawning Face
@@ -379,8 +344,7 @@ extension AvatarFaceTracking {
             "mouthFunnel": 0.6,
             "eyeSquintLeft": 0.6, "eyeSquintRight": 0.6,
             "browInnerUp": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Grimace / Awkward
@@ -392,8 +356,7 @@ extension AvatarFaceTracking {
             "mouthStretchLeft": 0.7, "mouthStretchRight": 0.7,
             "jawOpen": 0.1,
             "eyeWideLeft": 0.4, "eyeWideRight": 0.4,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😖 Confounded Face
@@ -404,8 +367,7 @@ extension AvatarFaceTracking {
             "browDownLeft": 0.5, "browDownRight": 0.5,
             "browInnerUp": 0.6,
             "mouthPucker": 0.3,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - Cheeks
@@ -417,8 +379,7 @@ extension AvatarFaceTracking {
             "eyeSquintLeft": 0.4, "eyeSquintRight": 0.4,
             "cheekPuff": 0.3,
             "cheekSquintLeft": 0.4, "cheekSquintRight": 0.4,
-        ],
-        isTracking: true
+        ]
     )
     
     /// 😶 Face Without Mouth — mouth completely closed/pressed
@@ -427,8 +388,7 @@ extension AvatarFaceTracking {
             "mouthClose": 0.9,
             "mouthPressLeft": 0.8, "mouthPressRight": 0.8,
             "mouthRollLower": 0.5, "mouthRollUpper": 0.5,
-        ],
-        isTracking: true
+        ]
     )
     
     // MARK: - All Presets

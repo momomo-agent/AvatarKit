@@ -92,12 +92,16 @@ public class AvatarAnimationMixer {
         merged = merged.filter { $0.value > 0.001 }
         
         // Head rotation
-        let headRotation = manualHeadRotation ?? idleHeadRotation
+        // Head rotation: convert quaternion to HeadRotation degrees
+        let q = manualHeadRotation ?? idleHeadRotation
+        let pitch = atan2(2 * (q.real * q.imag.x + q.imag.y * q.imag.z),
+                          1 - 2 * (q.imag.x * q.imag.x + q.imag.y * q.imag.y)) * 180 / .pi
+        let yaw = asin(max(-1, min(1, 2 * (q.real * q.imag.y - q.imag.z * q.imag.x)))) * 180 / .pi
+        let headRotation = AvatarFaceTracking.HeadRotation(pitch: pitch, yaw: yaw)
         
         let tracking = AvatarFaceTracking(
             blendshapes: merged,
-            headRotation: headRotation,
-            isTracking: true
+            headRotation: headRotation
         )
         
         currentTracking = tracking

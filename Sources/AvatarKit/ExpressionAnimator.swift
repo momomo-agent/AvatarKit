@@ -59,7 +59,7 @@ public final class ExpressionAnimator: NSObject {
     private var onFrame: ((AvatarFaceTracking) -> Void)?
     private var completion: (() -> Void)?
     
-    public init() {
+    public override init() {
         // Initialize all blendshapes to 0
         for name in BlendshapeOrder.names {
             current[name] = 0

@@ -1,16 +1,12 @@
 // AVTAnimojiScene.swift
 // Reconstructed from AvatarKit.framework (iOS 26.4)
 //
-// AVTAnimoji class hierarchy and scene loading pipeline.
-//
-// Evidence chain:
-//   Class hierarchy: otool -oV → AVTAnimoji : AVTAvatar : NSObject
-//   Ivars: otool -oV → 7 own ivars at offsets 8-56 (instanceSize 64)
-//   _load: disassembly → VFXWorld scene loading + node extraction
-//   animojiNames: +[AVTAnimoji animojiNames] → 28 character names
-//   Nigiri: +[AVTFaceTrackingInfo(Nigiri) trackingInfoWithTrackingData:]
+// Documentation-only: reconstructs the scene loading and update pipeline.
+// The actual runtime uses ObjC runtime calls in AvatarBridge.swift.
+// Wrapped in #if false because VFXNode/VFXMorpher have no public Swift API.
 
-import SceneKit
+#if false
+// Original file preserved below for reference.
 
 // MARK: - Animoji Character
 
@@ -19,10 +15,10 @@ import SceneKit
 /// Mirrors AVTAnimoji's 7 own ivars (instanceSize 64):
 /// ```
 /// offset  8: url                      URL?
-/// offset 16: lightingNode             SCNNode?
-/// offset 24: headNode                 SCNNode?
-/// offset 32: avatarNode               SCNNode?
-/// offset 40: cameraNode               SCNNode?
+/// offset 16: lightingNode             AnyObject?
+/// offset 24: headNode                 AnyObject?
+/// offset 32: avatarNode               AnyObject?
+/// offset 40: cameraNode               AnyObject?
 /// offset 48: specializationSettings   [String: Any]?
 /// offset 56: name                     String
 /// ```
@@ -35,19 +31,19 @@ struct AVTAnimojiScene {
     
     /// Lighting rig node (removed from scene parent during _load).
     /// Evidence: childNodeWithName:"lightingNode" → removeFromParentNode
-    let lightingNode: SCNNode?
+    let lightingNode: AnyObject?
     
     /// Head node — receives position and orientation from tracking data.
     /// Evidence: childNodeWithName:"headNode"
-    let headNode: SCNNode?
+    let headNode: AnyObject?
     
     /// Root avatar node containing the full character mesh hierarchy.
     /// Evidence: childNodeWithName:"avatarNode" (inferred from ivar name)
-    let avatarNode: SCNNode?
+    let avatarNode: AnyObject?
     
     /// Camera node for rendering viewpoint.
     /// Evidence: childNodeWithName:"cameraNode"
-    let cameraNode: SCNNode?
+    let cameraNode: AnyObject?
     
     /// Per-character rendering configuration.
     /// Evidence: AVTPrecompiledAnimojiSpecializationSettings[name]
@@ -205,3 +201,4 @@ enum AVTError: Error {
     case sceneLoadFailed(String)
     case invalidTrackingData(Int) // expected 480 bytes
 }
+#endif

@@ -19,12 +19,23 @@ public struct ExpressionPreset: Sendable {
     public let blendshapes: [String: Float]
     
     /// Convert to AvatarFaceTracking with optional head pose.
+    ///
+    /// All 51 blendshapes are explicitly set: unspecified ones default to 0
+    /// (not -1.0 sentinel) so previous expression state is fully cleared.
     public func tracking(
         pitch: Float = 0,
         yaw: Float = 0
     ) -> AvatarFaceTracking {
-        AvatarFaceTracking(
-            blendshapes: blendshapes,
+        // Start with all blendshapes at 0 to clear previous expression
+        var allBlendshapes: [String: Float] = Dictionary(
+            uniqueKeysWithValues: BlendshapeOrder.names.map { ($0, Float(0)) }
+        )
+        // Override with preset values
+        for (key, value) in blendshapes {
+            allBlendshapes[key] = value
+        }
+        return AvatarFaceTracking(
+            blendshapes: allBlendshapes,
             headRotation: .init(pitch: pitch, yaw: yaw, roll: 0),
             timestamp: CACurrentMediaTime()
         )

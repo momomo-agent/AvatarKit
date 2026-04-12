@@ -1,23 +1,11 @@
 // AVTMorphTarget.swift
 // Reconstructed from AvatarKit.framework (iOS 26.4)
 //
-// MorphInfo struct and the blendshape application pipeline.
-//
-// Evidence chain:
-//   MorphInfo layout: _applyBlendShapes:parameters: loop at 0x33a24-0x33aa8
-//     - Stride: add x26, x26, #0x20 → 32 bytes per entry
-//     - morpher: ldr x23, [x8] → offset 0
-//     - targetIndex: ldr x22, [x8, #0x10] → offset 16
-//     - isEnabled: ldrb w8, [x8, #0x18] → offset 24
-//     - Count: cmp x21, #0x33 → 51 entries
-//   TongueOut MorphInfo: separate at offset 0x660 from ivar base
-//     - morpher: ldr x22, [x8, #0x660] → offset 0x660
-//     - targetIndex: ldr x21, [x8, #0x670] → offset 0x670
-//     - isEnabled: ldrb w8, [x8, #0x678] → offset 0x678
-//   Tongue lerp: ldr s2, [x8, #0xe00] → const(float=0.3) at __TEXT,__const
-//   FriendlyPose: loop at 0x33abc-0x33ae4, array at self+0x48, count at self+0x50
+// Documentation-only: this file reconstructs the internal morph target pipeline.
+// The actual runtime uses ObjC runtime calls in AvatarBridge.swift.
+// Wrapped in #if false because VFXMorpher has no public Swift API.
 
-import SceneKit
+#if false
 
 // MARK: - MorphInfo
 
@@ -36,7 +24,7 @@ import SceneKit
 /// offset 25: (padding)     (7 bytes)
 /// ```
 struct AVTMorphInfo {
-    weak var morpher: SCNMorpher?
+    var morpher: AnyObject?  // VFXMorpher at runtime
     let targetIndex: Int
     let isEnabled: Bool
     
@@ -187,3 +175,4 @@ enum AVTHeadPoseApplicator {
         headNode.simdOrientation = trackingData.orientation
     }
 }
+#endif
