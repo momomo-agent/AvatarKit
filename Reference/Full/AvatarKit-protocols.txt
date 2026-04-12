@@ -1,0 +1,225 @@
+@protocol AVTAvatarDynamic
+// Required instance methods:
+  - affectsNode:  types=B24@0:8@16
+  - evaluateAtTime:physicsController:  types=v32@0:8d16@24
+  - resetTarget  types=v16@0:8
+@end
+
+@protocol AVTAvatarPoseAnimationController
+// Required instance methods:
+  - removeAnimationWithBlendOutDuration:  types=v24@0:8d16
+@end
+
+@protocol AVTPhysicsControllerDelegate
+// Required instance methods:
+  - avatarNodeForPhysicsController:  types=@24@0:8@16
+  - physicsController:downforceForNodeNamed:  types=d32@0:8@16@24
+@end
+
+@protocol AVTRendererTechnique
+// Required instance methods:
+  - encodeTechniqueCommandsForRenderer:atTime:helper:  types=v40@0:8@16d24@32
+  - techniqueIsActive  types=B16@0:8
+  - techniqueUsesExtraRenderTargetForRenderer:pixelFormat:  types=B32@0:8@16^Q24
+  - techniqueUsesSpecificMainPassClearColorForRenderer:clearColor:  types=B32@0:8@16^24
+@end
+
+@protocol AVTRendererTechniqueSupport
+// Required instance methods:
+  - avtRendererTechnique  types=@16@0:8
+  - setAvtRendererTechnique:  types=v24@0:8@16
+@end
+
+@protocol AVTSceneRenderer
+// Required instance methods:
+  - avt_simdProjectPoint:  types=32@0:816
+  - avt_simdUnprojectPoint:  types=32@0:816
+@end
+
+@protocol AVTWorldRenderer
+// Required instance methods:
+  - avt_simdProjectPoint:  types=32@0:816
+  - avt_simdUnprojectPoint:  types=32@0:816
+@end
+
+@protocol NSCoding
+// Required instance methods:
+  - encodeWithCoder:  types=v24@0:8@16
+  - initWithCoder:  types=@24@0:8@16
+@end
+
+@protocol NSCopying
+// Required instance methods:
+  - copyWithZone:  types=@24@0:8^{_NSZone=}16
+@end
+
+@protocol NSObject
+// Required instance methods:
+  - release  types=Vv16@0:8
+  - isProxy  types=B16@0:8
+  - autorelease  types=@16@0:8
+  - class  types=#16@0:8
+  - conformsToProtocol:  types=B24@0:8@16
+  - description  types=@16@0:8
+  - hash  types=Q16@0:8
+  - isEqual:  types=B24@0:8@16
+  - isKindOfClass:  types=B24@0:8#16
+  - isMemberOfClass:  types=B24@0:8#16
+  - performSelector:  types=@24@0:8:16
+  - performSelector:withObject:  types=@32@0:8:16@24
+  - performSelector:withObject:withObject:  types=@40@0:8:16@24@32
+  - respondsToSelector:  types=B24@0:8:16
+  - retain  types=@16@0:8
+  - retainCount  types=Q16@0:8
+  - self  types=@16@0:8
+  - superclass  types=#16@0:8
+  - zone  types=^{_NSZone=}16@0:8
+// Optional instance methods:
+  - debugDescription  types=@16@0:8
+@end
+
+@protocol NSSecureCoding
+// Required class methods:
+  + supportsSecureCoding  types=B16@0:8
+@end
+
+@protocol SCNSceneRenderer
+// Required instance methods:
+  - context  types=^v16@0:8
+  - delegate  types=@16@0:8
+  - setDelegate:  types=v24@0:8@16
+  - commandQueue  types=@16@0:8
+  - device  types=@16@0:8
+  - workingColorSpace  types=^{CGColorSpace=}16@0:8
+  - isPlaying  types=B16@0:8
+  - scene  types=@16@0:8
+  - setScene:  types=v24@0:8@16
+  - hitTest:options:  types=@40@0:8{CGPoint=dd}16@32
+  - setPlaying:  types=v20@0:8B16
+  - colorPixelFormat  types=Q16@0:8
+  - currentRenderPassDescriptor  types=@16@0:8
+  - currentViewport  types={CGRect={CGPoint=dd}{CGSize=dd}}16@0:8
+  - prepareObject:shouldAbortBlock:  types=B32@0:8@16@?24
+  - setTemporalAntialiasingEnabled:  types=v20@0:8B16
+  - showsStatistics  types=B16@0:8
+  - setPointOfView:  types=v24@0:8@16
+  - unprojectPoint:  types={SCNVector3=fff}28@0:8{SCNVector3=fff}16
+  - audioEngine  types=@16@0:8
+  - audioEnvironmentNode  types=@16@0:8
+  - audioListener  types=@16@0:8
+  - autoenablesDefaultLighting  types=B16@0:8
+  - currentRenderCommandEncoder  types=@16@0:8
+  - debugOptions  types=Q16@0:8
+  - depthPixelFormat  types=Q16@0:8
+  - isJitteringEnabled  types=B16@0:8
+  - isNodeInsideFrustum:withPointOfView:  types=B32@0:8@16@24
+  - isTemporalAntialiasingEnabled  types=B16@0:8
+  - loops  types=B16@0:8
+  - nodesInsideFrustumWithPointOfView:  types=@24@0:8@16
+  - overlaySKScene  types=@16@0:8
+  - pointOfView  types=@16@0:8
+  - prepareObjects:withCompletionHandler:  types=v32@0:8@16@?24
+  - presentScene:withTransition:incomingPointOfView:completionHandler:  types=v48@0:8@16@24@32@?40
+  - projectPoint:  types={SCNVector3=fff}28@0:8{SCNVector3=fff}16
+  - renderingAPI  types=Q16@0:8
+  - sceneTime  types=d16@0:8
+  - setAudioListener:  types=v24@0:8@16
+  - setAutoenablesDefaultLighting:  types=v20@0:8B16
+  - setDebugOptions:  types=v24@0:8Q16
+  - setJitteringEnabled:  types=v20@0:8B16
+  - setLoops:  types=v20@0:8B16
+  - setOverlaySKScene:  types=v24@0:8@16
+  - setSceneTime:  types=v24@0:8d16
+  - setShowsStatistics:  types=v20@0:8B16
+  - setUsesReverseZ:  types=v20@0:8B16
+  - stencilPixelFormat  types=Q16@0:8
+  - usesReverseZ  types=B16@0:8
+@end
+
+@protocol VFXMaterialPropertyTextureProvider
+// Required instance methods:
+  - newTextureForDevice:  types=@24@0:8@16
+  - renderToTexture:computeCommandHandler:blitCommandHandler:completionHandler:helper:  types=v56@0:8@16@?24@?32@?40@48
+@end
+
+@protocol VFXWorldRenderer
+// Required instance methods:
+  - delegate  types=@16@0:8
+  - setDelegate:  types=v24@0:8@16
+  - commandQueue  types=@16@0:8
+  - device  types=@16@0:8
+  - setBinaryArchives:  types=v24@0:8@16
+  - workingColorSpace  types=^{CGColorSpace=}16@0:8
+  - hitTest:options:  types=@40@0:8{CGPoint=dd}16@32
+  - world  types=@16@0:8
+  - currentRenderPassDescriptor  types=@16@0:8
+  - binaryArchives  types=@16@0:8
+  - currentViewport  types={CGRect={CGPoint=dd}{CGSize=dd}}16@0:8
+  - prepareObject:shouldAbortBlock:  types=B32@0:8@16@?24
+  - setTemporalAntialiasingEnabled:  types=v20@0:8B16
+  - showsStatistics  types=B16@0:8
+  - setPointOfView:  types=v24@0:8@16
+  - unprojectPoint:  types=32@0:816
+  - antialiasingMode  types=Q16@0:8
+  - audioEngine  types=@16@0:8
+  - audioEnvironmentNode  types=@16@0:8
+  - audioListener  types=@16@0:8
+  - autoenablesDefaultLighting  types=B16@0:8
+  - currentRenderCommandEncoder  types=@16@0:8
+  - debugOptions  types=Q16@0:8
+  - isJitteringEnabled  types=B16@0:8
+  - isNodeInsideFrustum:withPointOfView:  types=B32@0:8@16@24
+  - isTemporalAntialiasingEnabled  types=B16@0:8
+  - nodesInsideFrustumWithPointOfView:  types=@24@0:8@16
+  - pointOfView  types=@16@0:8
+  - prepareObjects:withCompletionHandler:  types=v32@0:8@16@?24
+  - projectPoint:  types=32@0:816
+  - setAntialiasingMode:  types=v24@0:8Q16
+  - setAudioListener:  types=v24@0:8@16
+  - setAutoenablesDefaultLighting:  types=v20@0:8B16
+  - setDebugOptions:  types=v24@0:8Q16
+  - setJitteringEnabled:  types=v20@0:8B16
+  - setShowsStatistics:  types=v20@0:8B16
+  - setWorld:  types=v24@0:8@16
+  - setRenderGraph:  types=v24@0:8@16
+  - additiveWritesToAlpha  types=B16@0:8
+  - renderGraph  types=@16@0:8
+  - setAdditiveWritesToAlpha:  types=v20@0:8B16
+@end
+
+@protocol VFXWorldRendererDelegate
+// Optional instance methods:
+  - renderer:didApplyAnimationsAtTime:  types=v32@0:8@16d24
+  - renderer:didApplyConstraintsAtTime:  types=v32@0:8@16d24
+  - renderer:didSimulatePhysicsAtTime:  types=v32@0:8@16d24
+  - renderer:updateAtTime:  types=v32@0:8@16d24
+  - renderer:didRenderWorld:atTime:  types=v40@0:8@16@24d32
+  - renderer:willRenderWorld:atTime:  types=v40@0:8@16@24d32
+@end
+
+@protocol _VFXWorldCommandBufferStatusMonitor
+// Required instance methods:
+  - renderer:commandBufferDidCompleteWithError:  types=v32@0:8@16@24
+@end
+
+@protocol _VFXWorldRendererDelegateSPI
+// Optional instance methods:
+  - _renderer:didBuildSubdivDataForHash:dataProvider:  types=v40@0:8@16@24@?32
+  - _renderer:inputTimeForCurrentFrameWithTime:  types=d32@0:8@16d24
+  - _renderer:subdivDataForHash:  types=@32@0:8@16@24
+@end
+
+@protocol _VFXWorldRendererMainPassCustomPostProcessSupport
+// Required instance methods:
+  - _customMainPassPostProcessUsesExtraRenderTargetForRenderer:pixelFormat:  types=B32@0:8@16^Q24
+  - _encodeCustomMainPassPostProcessForRenderer:atTime:helper:  types=v40@0:8@16d24@32
+  - _usesSpecificMainPassClearColorForRenderer:clearColor:  types=B32@0:8@16^24
+  - _wantsCustomMainPassPostProcessForRenderer:  types=B24@0:8@16
+@end
+
+@protocol _VFXWorldRendererResourceManagerMonitor
+// Required instance methods:
+  - renderer:didFallbackToDefaultTextureForSource:message:  types=v40@0:8@16@24@32
+@end
+
+

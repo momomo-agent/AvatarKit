@@ -1,39 +1,59 @@
 import Foundation
-import ARKit
 import simd
+import QuartzCore
 
-/// Face tracking data that AvatarView consumes.
-/// Provide this from any tracking source (ARKit, HumanSenseKit, etc.)
-public struct AvatarFaceTracking {
-    /// 51 ARKit blendshape coefficients keyed by ARFaceAnchor.BlendShapeLocation rawValue.
-    /// e.g. ["jawOpen": 0.5, "eyeBlinkLeft": 0.8, ...]
+// MARK: - Face Tracking Data
+
+/// Public face tracking data — the input to AvatarBridge.applyTracking().
+///
+/// Holds ARKit-compatible blendshape values and head orientation.
+/// Can be constructed from ARFaceAnchor, preset expressions, or manual values.
+public struct AvatarFaceTracking: Sendable {
+    
+    /// Blendshape name → weight (0..1). Uses ARKit camelCase names.
+    /// Missing keys use the -1.0 sentinel (skip/preserve previous value).
     public var blendshapes: [String: Float]
     
-    /// Head rotation as a quaternion (identity = facing camera straight on).
-    public var headRotation: simd_quatf
+    /// Head orientation.
+    public var headRotation: HeadRotation
     
-    /// Whether a face is currently detected.
-    public var isTracking: Bool
+    /// Frame timestamp (CACurrentMediaTime).
+    public var timestamp: Double
     
-    /// Whether the avatar renders in camera coordinate space.
-    /// `true` (default): avatar position follows head translation (natural for AR/face tracking).
-    /// `false`: avatar stays centered on screen (better for audio-driven animation).
-    public var cameraSpace: Bool
-    
-    /// Original ARFrame for the most reliable rendering path.
-    /// When available, AvatarView uses dataWithARFrame: instead of manual struct building.
-    internal var arFrame: ARFrame?
+    /// Head rotation in degrees.
+    public struct HeadRotation: Sendable {
+        /// Pitch (nod up/down) in degrees. Positive = look up.
+        public var pitch: Float
+        /// Yaw (turn left/right) in degrees. Positive = turn left.
+        public var yaw: Float
+        /// Roll (tilt) in degrees. Note: Apple ignores roll.
+        public var roll: Float
+        
+        public init(pitch: Float = 0, yaw: Float = 0, roll: Float = 0) {
+            self.pitch = pitch
+            self.yaw = yaw
+            self.roll = roll
+        }
+        
+        /// Convert to quaternion (ix, iy, iz, r) for the tracking buffer.
+        internal var quaternion: simd_quatf {
+            let p = pitch * .pi / 180
+            let y = yaw * .pi / 180
+            let qPitch = simd_quatf(angle: p, axis: SIMD3<Float>(1, 0, 0))
+            let qYaw = simd_quatf(angle: y, axis: SIMD3<Float>(0, 1, 0))
+            return qPitch * qYaw
+        }
+        
+        public static let zero = HeadRotation()
+    }
     
     public init(
         blendshapes: [String: Float] = [:],
-        headRotation: simd_quatf = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1),
-        isTracking: Bool = false,
-        cameraSpace: Bool = true
+        headRotation: HeadRotation = .zero,
+        timestamp: Double = CACurrentMediaTime()
     ) {
         self.blendshapes = blendshapes
         self.headRotation = headRotation
-        self.isTracking = isTracking
-        self.cameraSpace = cameraSpace
-        self.arFrame = nil
+        self.timestamp = timestamp
     }
 }

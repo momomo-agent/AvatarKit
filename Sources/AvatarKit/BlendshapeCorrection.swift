@@ -2,8 +2,18 @@ import Foundation
 
 // MARK: - Blendshape Corrections
 
-/// Per-blendshape corrections applied by Apple's `_applyBlendShapes:parameters:`
-/// after reading weights and before setting morph targets.
+/// Per-blendshape corrections from Apple's AvatarKit.
+///
+/// IMPORTANT: E2E testing (2026-04-12) shows these corrections are NOT applied
+/// by `_applyBlendShapes:parameters:` or `updatePoseWithFaceTrackingData:`.
+/// They exist in the binary (symbols `_AVTMorphWeightApplyBlinkCorrection` and
+/// `_AVTMorphWeightApplyCorrectionForTongue`) but appear to be applied upstream,
+/// likely in the Nigiri ARFrame pipeline (`dataWithARFrame:`) before the data
+/// reaches AvatarKit's apply methods.
+///
+/// This means: when using manual tracking data (non-ARKit), these corrections
+/// are NOT automatically applied. If you want them, apply them yourself before
+/// writing to the tracking buffer.
 ///
 /// Reverse-engineered from AvatarKit.framework (iOS 26.4):
 ///   - `_AVTMorphWeightApplyBlinkCorrection` (nm: 0x32ea4)
@@ -45,7 +55,6 @@ enum BlendshapeCorrection {
     }
     
     /// Apply all corrections in order (tongue first, then blink).
-    /// Matches Apple's application order in `_applyBlendShapes:parameters:`.
     static func applyAll(_ weight: Float, name: String, tongueParam: Float) -> Float {
         let afterTongue = applyTongue(weight, name: name, tongueParam: tongueParam)
         return applyBlink(afterTongue, name: name)

@@ -1,0 +1,396 @@
+
+NSObject (1 classes, 2658 methods)
+  2658  NSObject
+
+AVTRenderer (3 classes, 1542 methods)
+  1455  AVTRenderer
+    84  AVTRendererViewTransitionTechnique
+     3  AVTRenderer_CEKWorkaround
+
+SCNScene (1 classes, 1270 methods)
+  1270  SCNScene
+
+AVTAvatar (11 classes, 1192 methods)
+   704  AVTAvatar
+   149  AVTAvatarPose
+   104  AVTAvatarPoseAnimation
+    65  AVTAvatarPoseAnimationController
+    58  AVTAvatarMemoryOptimizer
+    42  AVTAvatarEnvironment
+    31  AVTAvatarDescriptor
+    15  AVTAvatarBodyPose
+    13  AVTAvatarPhysicalizedPose
+     6  AVTAvatarDidUpdateAtTimeCallbackItem
+     5  AVTAvatarPhysicsState
+
+VFXWorld (2 classes, 1033 methods)
+  1033  VFXWorld
+     0  VFXWorld_CEKWorkaround
+
+AVTView (2 classes, 783 methods)
+   767  AVTView
+    16  AVTViewTransitionHelper
+
+AVTSticker (15 classes, 525 methods)
+   112  AVTStickerConfiguration
+    96  AVTStickerProp
+    76  AVTStickerGenerator
+    55  AVTStickerShaderModifier
+    29  AVTStickerGeneratorOptions
+    25  AVTStickerConfigurationReversionContext
+    22  AVTStickerShaderModifierProperty
+    19  AVTStickerPropAdjustTransformProperty
+    18  AVTStickerGeneratorPosterOptions
+    16  AVTStickerPoseAdjustment
+    15  AVTStickerMorpherOverride
+    14  AVTStickerPresetOverride
+    10  AVTStickerCamera
+     9  AVTStickerImageProp
+     9  AVTStickerSceneProp
+
+AVTMemoji (4 classes, 227 methods)
+   183  AVTMemoji
+    24  AVTMemojiDescriptor
+    15  AVTMemojiBodyController
+     5  AVTMemojiWrapDeformerDriverInfo
+
+AVTCompositor (4 classes, 202 methods)
+   103  AVTCompositor
+    76  AVTCompositorTextureProvider
+    16  AVTCompositorPipeline
+     7  AVTCompositorPipelineCache
+
+AVTPreset (5 classes, 183 methods)
+   100  AVTPreset
+    37  AVTPresetStore
+    25  AVTPresetStoreDependency
+    11  AVTPresetStoreDependencyCondition
+    10  AVTPresetDependency
+
+AVTPhysicalized (2 classes, 157 methods)
+    80  AVTPhysicalizedMorpherDynamic
+    77  AVTPhysicalizedSkeletonDynamic
+
+AVTPhysics (2 classes, 138 methods)
+   125  AVTPhysicsController
+    13  AVTPhysicsRig
+
+AVTComponent (2 classes, 89 methods)
+    60  AVTComponent
+    29  AVTComponentInstance
+
+AVTAsset (3 classes, 84 methods)
+    66  AVTAsset
+    11  AVTAssetResourceCache
+     7  AVTAssetLibrary
+
+AVTSpring (1 classes, 82 methods)
+    82  AVTSpringDynamic
+
+AVTAnimoji (2 classes, 81 methods)
+    65  AVTAnimoji
+    16  AVTAnimojiDescriptor
+
+AVTColor (1 classes, 48 methods)
+    48  AVTColorPreset
+
+VFXMaterial (1 classes, 48 methods)
+    48  VFXMaterialProperty
+
+AVTSnapshot (2 classes, 43 methods)
+    23  AVTSnapshotBuilder
+    20  AVTSnapshotHelper
+
+AVTRecord (1 classes, 27 methods)
+    27  AVTRecordView
+
+AVTH (1 classes, 25 methods)
+    25  AVTHUDView
+
+AVTResource (1 classes, 17 methods)
+    17  AVTResourceLocator
+
+VFXCamera (2 classes, 17 methods)
+    12  VFXCamera
+     5  VFXCamera_CEKWorkaround
+
+AVTEye (1 classes, 13 methods)
+    13  AVTEyeSkinningDescriptor
+
+AVTMaterial (1 classes, 13 methods)
+    13  AVTMaterial
+
+AVTMetal (1 classes, 13 methods)
+    13  AVTMetalHelper
+
+AVTMass (1 classes, 11 methods)
+    11  AVTMassSpringDamperSystem
+
+AVTVariant (1 classes, 11 methods)
+    11  AVTVariantBatchSnapshotter
+
+NSArray (1 classes, 11 methods)
+    11  NSArray
+
+UIImage (1 classes, 10 methods)
+    10  UIImage
+
+NSValue (1 classes, 8 methods)
+     8  NSValue
+
+AVTImage (1 classes, 7 methods)
+     7  AVTImageUtilities
+
+AVTMorpher (1 classes, 7 methods)
+     7  AVTMorpherDrivenMaterialDescriptor
+
+AVTPupil (1 classes, 7 methods)
+     7  AVTPupilReflectionCorrectionDescriptor
+
+VFXNode (2 classes, 7 methods)
+     5  VFXNode
+     2  VFXNode_CEKWorkaround
+
+AVTPresentation (1 classes, 6 methods)
+     6  AVTPresentationConfiguration
+
+AVTVarying (1 classes, 6 methods)
+     6  AVTVaryingColor
+
+SCNCamera (1 classes, 6 methods)
+     6  SCNCamera
+
+AVTFace (1 classes, 5 methods)
+     5  AVTFaceTrackingInfo
+
+SCNTransaction (1 classes, 5 methods)
+     5  SCNTransaction
+
+AVTSkinner (1 classes, 4 methods)
+     4  AVTSkinnerVariantPair
+
+AVTClassic (1 classes, 3 methods)
+     3  AVTClassicPresentationConfiguration
+
+NSDictionary (1 classes, 3 methods)
+     3  NSDictionary
+
+SCNMaterial (1 classes, 3 methods)
+     3  SCNMaterialProperty
+
+SCNSkinner (1 classes, 3 methods)
+     3  SCNSkinner
+
+SCNView (1 classes, 3 methods)
+     3  SCNView
+
+VFXSkinner (1 classes, 3 methods)
+     3  VFXSkinner
+
+VFXView (1 classes, 3 methods)
+     3  VFXView
+
+NSMutable (4 classes, 2 methods)
+     1  NSMutableArray
+     1  NSMutableDictionary
+     0  NSMutableSet
+     0  NSMutableString
+
+NSNumber (1 classes, 2 methods)
+     2  NSNumber
+
+SCNNode (1 classes, 2 methods)
+     2  SCNNode
+
+SCNRenderer (1 classes, 2 methods)
+     2  SCNRenderer
+
+UIColor (1 classes, 2 methods)
+     2  UIColor
+
+VFXRenderer (1 classes, 2 methods)
+     2  VFXRenderer
+
+CAAnimation (1 classes, 1 methods)
+     1  CAAnimationGroup
+
+CAProperty (1 classes, 1 methods)
+     1  CAPropertyAnimation
+
+NSString (1 classes, 1 methods)
+     1  NSString
+
+SCNMorpher (1 classes, 1 methods)
+     1  SCNMorpher
+
+VFXMorpher (1 classes, 1 methods)
+     1  VFXMorpher
+
+AVTCamera (1 classes, 0 methods)
+     0  AVTCameraEffectsKitRenderer
+
+CABasic (1 classes, 0 methods)
+     0  CABasicAnimation
+
+CAGradient (1 classes, 0 methods)
+     0  CAGradientLayer
+
+CAKeyframe (1 classes, 0 methods)
+     0  CAKeyframeAnimation
+
+CALayer (1 classes, 0 methods)
+     0  CALayer
+
+CAMedia (1 classes, 0 methods)
+     0  CAMediaTimingFunction
+
+CATransaction (1 classes, 0 methods)
+     0  CATransaction
+
+MTLCommand (1 classes, 0 methods)
+     0  MTLCommandBufferDescriptor
+
+MTLCompute (1 classes, 0 methods)
+     0  MTLComputePipelineDescriptor
+
+MTLRender (2 classes, 0 methods)
+     0  MTLRenderPassDescriptor
+     0  MTLRenderPipelineDescriptor
+
+MTLTexture (1 classes, 0 methods)
+     0  MTLTextureDescriptor
+
+NSBundle (1 classes, 0 methods)
+     0  NSBundle
+
+NSByte (1 classes, 0 methods)
+     0  NSByteCountFormatter
+
+NSCache (1 classes, 0 methods)
+     0  NSCache
+
+NSConstant (5 classes, 0 methods)
+     0  NSConstantArray
+     0  NSConstantDictionary
+     0  NSConstantDoubleNumber
+     0  NSConstantFloatNumber
+     0  NSConstantIntegerNumber
+
+NSData (1 classes, 0 methods)
+     0  NSData
+
+NSDecimal (2 classes, 0 methods)
+     0  NSDecimalNumber
+     0  NSDecimalNumberHandler
+
+NSError (1 classes, 0 methods)
+     0  NSError
+
+NSException (1 classes, 0 methods)
+     0  NSException
+
+NSFile (1 classes, 0 methods)
+     0  NSFileManager
+
+NSJS (1 classes, 0 methods)
+     0  NSJSONSerialization
+
+NSKeyed (2 classes, 0 methods)
+     0  NSKeyedArchiver
+     0  NSKeyedUnarchiver
+
+NSMap (1 classes, 0 methods)
+     0  NSMapTable
+
+NSNotification (1 classes, 0 methods)
+     0  NSNotificationCenter
+
+NSNull (1 classes, 0 methods)
+     0  NSNull
+
+NSPipe (1 classes, 0 methods)
+     0  NSPipe
+
+NSProperty (1 classes, 0 methods)
+     0  NSPropertyListSerialization
+
+NSRecursive (1 classes, 0 methods)
+     0  NSRecursiveLock
+
+NSRegular (1 classes, 0 methods)
+     0  NSRegularExpression
+
+NSSet (1 classes, 0 methods)
+     0  NSSet
+
+NSSort (1 classes, 0 methods)
+     0  NSSortDescriptor
+
+NSTask (1 classes, 0 methods)
+     0  NSTask
+
+NSUR (1 classes, 0 methods)
+     0  NSURL
+
+NSUU (1 classes, 0 methods)
+     0  NSUUID
+
+NSUser (1 classes, 0 methods)
+     0  NSUserDefaults
+
+SCNGeometry (2 classes, 0 methods)
+     0  SCNGeometrySource
+     0  SCNGeometryTessellator
+
+SCNKeyed (2 classes, 0 methods)
+     0  SCNKeyedArchiver
+     0  SCNKeyedUnarchiver
+
+UIDevice (1 classes, 0 methods)
+     0  UIDevice
+
+UIFont (1 classes, 0 methods)
+     0  UIFont
+
+UILabel (1 classes, 0 methods)
+     0  UILabel
+
+UITap (1 classes, 0 methods)
+     0  UITapGestureRecognizer
+
+UIView (1 classes, 0 methods)
+     0  UIView
+
+UIWindow (1 classes, 0 methods)
+     0  UIWindow
+
+VFXAnimation (3 classes, 0 methods)
+     0  VFXAnimation
+     0  VFXAnimationEvent
+     0  VFXAnimationPlayer
+
+VFXKeyed (2 classes, 0 methods)
+     0  VFXKeyedArchiver
+     0  VFXKeyedUnarchiver
+
+VFXMesh (2 classes, 0 methods)
+     0  VFXMesh
+     0  VFXMeshSource
+
+VFXModel (3 classes, 0 methods)
+     0  VFXModelTessellator
+     0  VFXModelWrapDeformer
+     0  VFXModelWrapDeformerParameters
+
+VFXParametric (1 classes, 0 methods)
+     0  VFXParametricModel
+
+VFXPhysics (3 classes, 0 methods)
+     0  VFXPhysicsBody
+     0  VFXPhysicsConeTwistJoint
+     0  VFXPhysicsShape
+
+VFXTransaction (1 classes, 0 methods)
+     0  VFXTransaction
+
+--- Total: 176 classes, 10659 methods ---
