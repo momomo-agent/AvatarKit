@@ -6,7 +6,6 @@ struct ContentView: View {
     @State private var character = "cat"
     @State private var currentExpr = "neutral"
     
-    // Extreme eye test presets
     private let eyeTests: [(String, ExpressionPreset)] = [
         ("Normal", .neutral),
         ("Left Blink", ExpressionPreset(name: "leftBlink", blendshapes: [
@@ -35,51 +34,62 @@ struct ContentView: View {
     ]
     
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                AvatarView(bridge: bridge, character: character)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 400)
-                    .background(Color(.systemBackground))
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                // Avatar — fills top portion, edge to edge
+                ZStack(alignment: .topLeading) {
+                    AvatarView(bridge: bridge, character: character)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: geo.size.height * 0.55)
+                    
+                    Text("\(character) — \(currentExpr)")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.top, geo.safeAreaInsets.top + 8)
+                        .padding(.leading, 12)
+                }
                 
-                Text("\(character) — \(currentExpr)")
-                    .font(.headline)
-                    .padding(8)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .padding(12)
-            }
-            
-            // Character picker
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(AvatarBridge.availableAnimoji, id: \.self) { name in
-                        Button(name) {
-                            character = name
-                            currentExpr = "loaded"
+                // Controls panel
+                VStack(spacing: 10) {
+                    // Character picker
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(AvatarBridge.availableAnimoji, id: \.self) { name in
+                                Button(name) {
+                                    character = name
+                                    currentExpr = "loaded"
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .tint(character == name ? .blue : .gray)
+                            }
                         }
-                        .buttonStyle(.bordered)
-                        .tint(character == name ? .blue : .gray)
+                        .padding(.horizontal, 16)
+                    }
+                    
+                    Divider().padding(.horizontal, 16)
+                    
+                    // Expression grid
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 90))], spacing: 8) {
+                            ForEach(eyeTests, id: \.0) { label, preset in
+                                Button(label) {
+                                    bridge.applyPreset(preset)
+                                    currentExpr = preset.name
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .font(.caption)
+                            }
+                        }
+                        .padding(.horizontal, 16)
                     }
                 }
-                .padding(.horizontal)
+                .padding(.top, 12)
             }
-            .padding(.vertical, 8)
-            
-            // Eye test buttons
-            Text("Eye Tests").font(.caption).foregroundStyle(.secondary)
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 8) {
-                    ForEach(eyeTests, id: \.0) { label, preset in
-                        Button(label) {
-                            bridge.applyPreset(preset)
-                            currentExpr = preset.name
-                        }
-                        .buttonStyle(.bordered)
-                        .font(.caption)
-                    }
-                }
-                .padding(.horizontal)
-            }
+            .ignoresSafeArea(edges: .top)
         }
     }
 }
