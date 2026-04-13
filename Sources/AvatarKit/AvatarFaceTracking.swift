@@ -14,11 +14,31 @@ public struct AvatarFaceTracking: Sendable {
     /// Missing keys use the -1.0 sentinel (skip/preserve previous value).
     public var blendshapes: [String: Float]
     
-    /// Head orientation.
+    /// Head orientation (Euler angles). Used when rawQuaternion is nil.
     public var headRotation: HeadRotation
+    
+    /// Raw quaternion from ARKit — preferred over headRotation when set.
+    /// Avoids Euler decomposition/recomposition errors and preserves roll.
+    public var rawQuaternion: simd_quatf?
+    
+    /// Head translation (x, y, z) from ARKit.
+    public var headTranslation: SIMD3<Float>
+    
+    /// Coordinate space of the tracking data.
+    public var coordinateSpace: CoordinateSpace
     
     /// Frame timestamp (CACurrentMediaTime).
     public var timestamp: Double
+    
+    /// Coordinate space for head tracking.
+    public enum CoordinateSpace: Sendable {
+        /// World-space: raw ARKit quaternion, moves with phone tilt.
+        case world
+        /// Camera-relative rotation only: compensates for phone movement.
+        case cameraRotationOnly
+        /// Camera-relative with translation.
+        case cameraFull
+    }
     
     /// Head rotation in degrees.
     public struct HeadRotation: Sendable {
@@ -50,10 +70,16 @@ public struct AvatarFaceTracking: Sendable {
     public init(
         blendshapes: [String: Float] = [:],
         headRotation: HeadRotation = .zero,
+        rawQuaternion: simd_quatf? = nil,
+        headTranslation: SIMD3<Float> = .zero,
+        coordinateSpace: CoordinateSpace = .world,
         timestamp: Double = CACurrentMediaTime()
     ) {
         self.blendshapes = blendshapes
         self.headRotation = headRotation
+        self.rawQuaternion = rawQuaternion
+        self.headTranslation = headTranslation
+        self.coordinateSpace = coordinateSpace
         self.timestamp = timestamp
     }
 }
