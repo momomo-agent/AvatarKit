@@ -228,4 +228,18 @@ public final class AvatarBridge {
         guard (animoji as AnyObject).responds(to: sel) else { return nil }
         return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
     }
+    
+    // MARK: - Direct Node Manipulation
+    
+    /// Set the neck node's position directly (bypasses _applyHeadPose translation).
+    public func setNeckPosition(_ position: SIMD3<Float>) {
+        guard let node = neckNode else { return }
+        let sel = NSSelectorFromString("setPosition:")
+        let obj = node as AnyObject
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return }
+        let pos = SIMD4<Float>(position.x, position.y, position.z, 0)
+        typealias F = @convention(c) (AnyObject, Selector, SIMD4<Float>) -> Void
+        unsafeBitCast(imp, to: F.self)(obj, sel, pos)
+    }
 }
