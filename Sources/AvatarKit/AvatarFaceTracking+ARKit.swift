@@ -2,6 +2,9 @@ import ARKit
 
 extension AvatarFaceTracking {
     
+    /// Debug counter for periodic logging
+    private static var debugInitCount = 0
+    
     /// World-space tracking — extracts head pose delta from ARKit quaternion.
     ///
     /// ARKit's face quaternion includes the base orientation (face looking at camera ≈ Ry(π)).
@@ -34,6 +37,16 @@ extension AvatarFaceTracking {
         self.headTranslation = SIMD3(t.x, t.y, t.z)
         self.coordinateSpace = .world
         self.timestamp = CACurrentMediaTime()
+        
+        // === DEBUG POINT B: World init output ===
+        Self.debugInitCount += 1
+        if Self.debugInitCount % 120 == 1 {
+            print("[B-WORLD] ARKit.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", q.imag.x, q.imag.y, q.imag.z, q.real)))")
+            print("[B-WORLD] euler=(p:\(String(format: "%.4f", pitch)) y:\(String(format: "%.4f", yaw)) r:\(String(format: "%.4f", roll)))")
+            print("[B-WORLD] output.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", rawQuaternion!.imag.x, rawQuaternion!.imag.y, rawQuaternion!.imag.z, rawQuaternion!.real)))")
+            print("[B-WORLD] output.t=(\(String(format: "%.4f,%.4f,%.4f", headTranslation.x, headTranslation.y, headTranslation.z)))")
+            print("[B-WORLD] ---")
+        }
     }
     
     /// Camera-relative tracking — replicates Apple's AvatarKit pipeline.
@@ -60,6 +73,18 @@ extension AvatarFaceTracking {
         self.headTranslation = SIMD3(t.x, t.y, t.z)
         self.coordinateSpace = .cameraRotationOnly
         self.timestamp = CACurrentMediaTime()
+        
+        // === DEBUG POINT B: Camera init output ===
+        Self.debugInitCount += 1
+        if Self.debugInitCount % 120 == 2 {
+            let fq = simd_quatf(faceAnchor.transform)
+            let cq = simd_quatf(cameraTransform)
+            print("[B-CAM] face.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", fq.imag.x, fq.imag.y, fq.imag.z, fq.real)))")
+            print("[B-CAM] cam.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", cq.imag.x, cq.imag.y, cq.imag.z, cq.real)))")
+            print("[B-CAM] result.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", q.imag.x, q.imag.y, q.imag.z, q.real)))")
+            print("[B-CAM] result.t=(\(String(format: "%.4f,%.4f,%.4f", t.x, t.y, t.z)))")
+            print("[B-CAM] ---")
+        }
     }
     
     /// Camera-relative with translation tracking.

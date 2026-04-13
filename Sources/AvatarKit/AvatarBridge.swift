@@ -110,11 +110,37 @@ public final class AvatarBridge {
     ///
     /// Falls back to `updatePoseWithFaceTrackingData:applySmoothing:` (NSData wrapper)
     /// if the direct methods are unavailable.
+    /// Debug counter for periodic logging
+    private var debugApplyCount = 0
+    
     public func applyTracking(_ tracking: AvatarFaceTracking) {
         guard let animoji else { return }
         let obj = animoji as AnyObject
         
         let data = TrackingDataBuilder.build(from: tracking)
+        
+        debugApplyCount += 1
+        let shouldLog = debugApplyCount % 60 == 1
+        
+        // === DEBUG POINT D-pre: Before Apple calls ===
+        if shouldLog {
+            if let neckPos = getNeckPosition() {
+                print("[D-PRE] neckPos=(\(String(format: "%.4f,%.4f,%.4f", neckPos.x, neckPos.y, neckPos.z)))")
+            }
+            if let headQ = getHeadOrientation() {
+                print("[D-PRE] headQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", headQ.imag.x, headQ.imag.y, headQ.imag.z, headQ.real)))")
+            }
+            if let wt = getCameraWorldTransform() {
+                let camQ = simd_quatf(wt)
+                print("[D-PRE] camWT.pos=(\(String(format: "%.3f,%.3f,%.3f", wt.columns.3.x, wt.columns.3.y, wt.columns.3.z)))")
+                print("[D-PRE] camWT.quat=(\(String(format: "%.4f,%.4f,%.4f,%.4f", camQ.imag.x, camQ.imag.y, camQ.imag.z, camQ.real)))")
+                // Print full matrix for rotation analysis
+                print("[D-PRE] camWT.col0=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.0.x, wt.columns.0.y, wt.columns.0.z)))")
+                print("[D-PRE] camWT.col1=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.1.x, wt.columns.1.y, wt.columns.1.z)))")
+                print("[D-PRE] camWT.col2=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.2.x, wt.columns.2.y, wt.columns.2.z)))")
+            }
+            print("[D-PRE] pov=\(cameraNode == nil ? "nil" : "exists") coordSpace=\(tracking.coordinateSpace)")
+        }
         
         // Primary: direct struct pointer calls (avoids NSData overhead)
         var applied = false
@@ -136,12 +162,20 @@ public final class AvatarBridge {
             if obj.responds(to: poseSel),
                let imp = class_getMethodImplementation(type(of: obj), poseSel) {
                 typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                // Pass cameraNode as pointOfView for world-space tracking:
-                // _applyHeadPose uses it to transform the quaternion into scene space.
-                // For camera-relative tracking, callers should use applyTrackingDirect instead.
                 let pov = self.cameraNode
                 unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, pov)
             }
+        }
+        
+        // === DEBUG POINT D-post: After Apple calls ===
+        if shouldLog {
+            if let neckPos = getNeckPosition() {
+                print("[D-POST] neckPos=(\(String(format: "%.4f,%.4f,%.4f", neckPos.x, neckPos.y, neckPos.z)))")
+            }
+            if let headQ = getHeadOrientation() {
+                print("[D-POST] headQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", headQ.imag.x, headQ.imag.y, headQ.imag.z, headQ.real)))")
+            }
+            print("[D-POST] ---")
         }
         
         // Fallback: NSData wrapper

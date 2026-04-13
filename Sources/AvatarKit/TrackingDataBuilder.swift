@@ -59,7 +59,40 @@ enum TrackingDataBuilder {
             writeTongue(ptr, tracking.blendshapes["tongueOut"])
         }
         
+        // === DEBUG POINT C: Buffer contents ===
+        debugLogBuffer(buf, tracking: tracking)
+        
         return buf
+    }
+    
+    /// Debug counter for periodic buffer logging
+    private static var debugBufferCount = 0
+    
+    private static func debugLogBuffer(_ buf: Data, tracking: AvatarFaceTracking) {
+        debugBufferCount += 1
+        guard debugBufferCount % 60 == 1 else { return }
+        
+        buf.withUnsafeBytes { raw in
+            let ptr = raw.baseAddress!
+            
+            // Read back what we wrote
+            let t = ptr.load(fromByteOffset: 0x10, as: SIMD4<Float>.self)
+            let q = ptr.load(fromByteOffset: 0x20, as: simd_quatf.self)
+            let cs = ptr.load(fromByteOffset: 0x30, as: UInt8.self)
+            
+            print("[C-BUF] translation=(\(String(format: "%.4f,%.4f,%.4f,%.4f", t.x, t.y, t.z, t.w)))")
+            print("[C-BUF] quaternion=(\(String(format: "%.4f,%.4f,%.4f,%.4f", q.imag.x, q.imag.y, q.imag.z, q.real)))")
+            print("[C-BUF] cameraSpace=\(cs)")
+            
+            // Read first 5 blendshapes from smooth slot
+            var bs: [Float] = []
+            for i in 0..<5 {
+                bs.append(ptr.load(fromByteOffset: 0x34 + i * 4, as: Float.self))
+            }
+            print("[C-BUF] blendshapes[0..4]=\(bs.map { String(format: "%.3f", $0) })")
+            print("[C-BUF] coordSpace=\(tracking.coordinateSpace)")
+            print("[C-BUF] ---")
+        }
     }
     
     // MARK: - Private
