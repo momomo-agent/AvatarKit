@@ -67,6 +67,13 @@ public struct AvatarFaceTracking: Sendable {
         public static let zero = HeadRotation()
     }
     
+    /// Convenience: camera-space flag for the tracking buffer.
+    /// Maps to coordinateSpace (.cameraRotationOnly when true, .world when false).
+    public var cameraSpace: Bool {
+        get { coordinateSpace != .world }
+        set { coordinateSpace = newValue ? .cameraRotationOnly : .world }
+    }
+    
     public init(
         blendshapes: [String: Float] = [:],
         headRotation: HeadRotation = .zero,

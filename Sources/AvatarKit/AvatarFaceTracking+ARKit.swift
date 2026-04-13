@@ -2,7 +2,11 @@ import ARKit
 
 extension AvatarFaceTracking {
     
-    /// World-space tracking — raw ARKit quaternion.
+    /// World-space tracking — extracts head pose delta from ARKit quaternion.
+    ///
+    /// ARKit's face quaternion includes the base orientation (face looking at camera ≈ Ry(π)).
+    /// _applyHeadPose expects a delta from neutral, so we extract pitch/yaw/roll
+    /// which naturally represent the delta (neutral face → pitch≈0, yaw≈0, roll≈0).
     public init(faceAnchor: ARFaceAnchor, worldSpace: Bool = true) {
         var bs: [String: Float] = [:]
         for (location, value) in faceAnchor.blendShapes {
@@ -12,9 +16,21 @@ extension AvatarFaceTracking {
         let q = simd_quatf(faceAnchor.transform)
         let t = faceAnchor.transform.columns.3
         
+        // Extract Euler angles (delta from neutral face orientation)
+        let pitch = atan2(2 * (q.real * q.imag.x + q.imag.y * q.imag.z),
+                          1 - 2 * (q.imag.x * q.imag.x + q.imag.y * q.imag.y))
+        let yaw = asin(max(-1, min(1, 2 * (q.real * q.imag.y - q.imag.z * q.imag.x))))
+        let roll = atan2(2 * (q.real * q.imag.z + q.imag.x * q.imag.y),
+                         1 - 2 * (q.imag.y * q.imag.y + q.imag.z * q.imag.z))
+        
+        // Reconstruct as delta quaternion (pitch × yaw × roll)
+        let qP = simd_quatf(angle: pitch, axis: SIMD3<Float>(1, 0, 0))
+        let qY = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
+        let qR = simd_quatf(angle: roll, axis: SIMD3<Float>(0, 0, 1))
+        
         self.blendshapes = bs
         self.headRotation = .zero
-        self.rawQuaternion = q
+        self.rawQuaternion = qP * qY * qR
         self.headTranslation = SIMD3(t.x, t.y, t.z)
         self.coordinateSpace = .world
         self.timestamp = CACurrentMediaTime()
