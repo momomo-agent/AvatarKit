@@ -229,6 +229,17 @@ public final class AvatarBridge {
         return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
     }
     
+    /// Read the camera node's worldTransform (4x4 matrix).
+    public func getCameraWorldTransform() -> simd_float4x4? {
+        guard let cam = cameraNode else { return nil }
+        let sel = NSSelectorFromString("worldTransform")
+        let obj = cam as AnyObject
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return nil }
+        typealias F = @convention(c) (AnyObject, Selector) -> simd_float4x4
+        return unsafeBitCast(imp, to: F.self)(obj, sel)
+    }
+    
     // MARK: - Direct Node Manipulation
     
     /// Read the neck node's current position.
