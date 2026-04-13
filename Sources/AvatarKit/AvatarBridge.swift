@@ -231,6 +231,18 @@ public final class AvatarBridge {
     
     // MARK: - Direct Node Manipulation
     
+    /// Read the neck node's current position.
+    public func getNeckPosition() -> SIMD3<Float>? {
+        guard let node = neckNode else { return nil }
+        let sel = NSSelectorFromString("position")
+        let obj = node as AnyObject
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return nil }
+        typealias F = @convention(c) (AnyObject, Selector) -> SIMD4<Float>
+        let pos = unsafeBitCast(imp, to: F.self)(obj, sel)
+        return SIMD3(pos.x, pos.y, pos.z)
+    }
+    
     /// Set the neck node's position directly (bypasses _applyHeadPose translation).
     public func setNeckPosition(_ position: SIMD3<Float>) {
         guard let node = neckNode else { return }
