@@ -136,12 +136,11 @@ public final class AvatarBridge {
             if obj.responds(to: poseSel),
                let imp = class_getMethodImplementation(type(of: obj), poseSel) {
                 typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                // Pass nil as pointOfView: the camera-relative quaternion from ARKit
-                // is already in the correct space. Passing cameraNode causes a double
-                // transform (90° rotation). With nil, _applyHeadPose uses the raw
-                // quaternion directly and still handles cameraSpace translation
-                // via convertPosition(headNode.pos, toNode: neckNode).
-                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
+                // Pass cameraNode as pointOfView for world-space tracking:
+                // _applyHeadPose uses it to transform the quaternion into scene space.
+                // For camera-relative tracking, callers should use applyTrackingDirect instead.
+                let pov = self.cameraNode
+                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, pov)
             }
         }
         
