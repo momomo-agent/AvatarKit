@@ -254,6 +254,17 @@ public final class AvatarBridge {
         return SIMD3(pos.x, pos.y, pos.z)
     }
     
+    /// Read the head node's current orientation (quaternion).
+    public func getHeadOrientation() -> simd_quatf? {
+        guard let node = headNode else { return nil }
+        let sel = NSSelectorFromString("orientation")
+        let obj = node as AnyObject
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return nil }
+        typealias F = @convention(c) (AnyObject, Selector) -> simd_quatf
+        return unsafeBitCast(imp, to: F.self)(obj, sel)
+    }
+    
     /// Set the neck node's position directly (bypasses _applyHeadPose translation).
     public func setNeckPosition(_ position: SIMD3<Float>) {
         guard let node = neckNode else { return }
