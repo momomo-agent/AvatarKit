@@ -56,7 +56,7 @@ public struct AvatarFaceTracking: Sendable {
         }
         
         /// Convert to quaternion (ix, iy, iz, r) for the tracking buffer.
-        internal var quaternion: simd_quatf {
+        public var quaternion: simd_quatf {
             let p = pitch * .pi / 180
             let y = yaw * .pi / 180
             let qPitch = simd_quatf(angle: p, axis: SIMD3<Float>(1, 0, 0))

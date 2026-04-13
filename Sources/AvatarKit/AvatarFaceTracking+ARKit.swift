@@ -2,11 +2,7 @@ import ARKit
 
 extension AvatarFaceTracking {
     
-    // No mirroring needed. AvatarKit's animoji model faces the camera,
-    // so ARKit's quaternion naturally produces the "mirror" effect.
-    // Verified by simulator test: Apple passes quaternion through unchanged.
-    
-    /// World-space tracking. Avatar rotates when you and phone move together.
+    /// World-space tracking — raw ARKit quaternion.
     public init(faceAnchor: ARFaceAnchor, worldSpace: Bool = true) {
         var bs: [String: Float] = [:]
         for (location, value) in faceAnchor.blendShapes {
@@ -24,38 +20,52 @@ extension AvatarFaceTracking {
         self.timestamp = CACurrentMediaTime()
     }
     
-    /// Camera-relative, rotation only. Avatar stays still when you and phone move together.
-    public init(faceAnchor: ARFaceAnchor, cameraRelativeTransform: simd_float4x4) {
+    /// Camera-relative tracking — replicates Apple's AvatarKit pipeline.
+    ///
+    /// From binary analysis of __convertARFaceAnchorTransformToSceneKitTransform
+    /// (iPhone18,4 26.3, __TEXT,__const):
+    /// - coordTransform = identity for portrait (the only orientation ARKit face tracking uses)
+    /// - Result: inverse(camera.transform) × face.transform
+    public init(faceAnchor: ARFaceAnchor, cameraTransform: simd_float4x4) {
         var bs: [String: Float] = [:]
         for (location, value) in faceAnchor.blendShapes {
             bs[location.rawValue] = value.floatValue
         }
-        
-        let q = simd_quatf(cameraRelativeTransform)
-        
-        self.blendshapes = bs
-        self.headRotation = .zero
-        self.rawQuaternion = q
-        self.headTranslation = .zero
-        self.coordinateSpace = .cameraRotationOnly
-        self.timestamp = CACurrentMediaTime()
-    }
-    
-    /// Camera-relative with translation. Avatar follows your head position relative to camera.
-    public init(faceAnchor: ARFaceAnchor, cameraRelativeTransform: simd_float4x4, withTranslation: Bool) {
-        var bs: [String: Float] = [:]
-        for (location, value) in faceAnchor.blendShapes {
-            bs[location.rawValue] = value.floatValue
-        }
-        
-        let q = simd_quatf(cameraRelativeTransform)
-        let t = cameraRelativeTransform.columns.3
-        
+
+        // Portrait: coordTransform = identity, so just inverse(camera) × face
+        let result = cameraTransform.inverse * faceAnchor.transform
+
+        let q = simd_quatf(result)
+        let t = result.columns.3
+
         self.blendshapes = bs
         self.headRotation = .zero
         self.rawQuaternion = q
         self.headTranslation = SIMD3(t.x, t.y, t.z)
-        self.coordinateSpace = .cameraFull
+        self.coordinateSpace = .cameraRotationOnly
         self.timestamp = CACurrentMediaTime()
+    }
+    
+    /// Camera-relative with translation tracking.
+    public init(faceAnchor: ARFaceAnchor, cameraTransform: simd_float4x4, withTranslation: Bool) {
+        self.init(faceAnchor: faceAnchor, cameraTransform: cameraTransform)
+        if withTranslation {
+            self.coordinateSpace = .cameraFull
+        }
+    }
+
+    /// Create tracking data from an ARFrame (convenience).
+    public init(arFrame: ARFrame) {
+        let faceAnchor = arFrame.anchors.compactMap { $0 as? ARFaceAnchor }.first
+        if let faceAnchor {
+            self.init(faceAnchor: faceAnchor, cameraTransform: arFrame.camera.transform)
+        } else {
+            self.init()
+        }
+    }
+
+    /// Whether a face is being tracked.
+    public var isTracking: Bool {
+        !blendshapes.isEmpty
     }
 }

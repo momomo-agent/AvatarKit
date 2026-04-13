@@ -1,4 +1,5 @@
 import Foundation
+import simd
 import UIKit
 import ObjectiveC
 
@@ -135,7 +136,11 @@ public final class AvatarBridge {
             if obj.responds(to: poseSel),
                let imp = class_getMethodImplementation(type(of: obj), poseSel) {
                 typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
+                // Pass cameraNode as pointOfView so AvatarKit can do camera-relative
+                // transform when cameraSpace=true. Without this, it just logs a warning
+                // and uses the raw quaternion (no camera compensation).
+                let pov = self.cameraNode
+                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, pov)
             }
         }
         
@@ -146,6 +151,40 @@ public final class AvatarBridge {
                let imp = class_getMethodImplementation(type(of: obj), sel) {
                 typealias UpdateFunc = @convention(c) (AnyObject, Selector, NSData, Bool) -> Void
                 unsafeBitCast(imp, to: UpdateFunc.self)(obj, sel, data as NSData, false)
+            }
+        }
+    }
+    
+    /// Apply face tracking with direct head pose control.
+    /// Uses _applyBlendShapes for expressions but sets headNode.orientation directly,
+    /// bypassing _applyHeadPose and its pointOfView multiplication.
+    public func applyTrackingDirect(_ tracking: AvatarFaceTracking) {
+        guard let animoji else { return }
+        let obj = animoji as AnyObject
+        
+        let data = TrackingDataBuilder.build(from: tracking)
+        
+        data.withUnsafeBytes { raw in
+            guard let ptr = raw.baseAddress else { return }
+            
+            // Apply blendshapes only
+            let blendSel = NSSelectorFromString("_applyBlendShapesWithTrackingData:")
+            if obj.responds(to: blendSel),
+               let imp = class_getMethodImplementation(type(of: obj), blendSel) {
+                typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer) -> Void
+                unsafeBitCast(imp, to: Func.self)(obj, blendSel, ptr)
+            }
+        }
+        
+        // Set head orientation directly via ObjC runtime
+        if let headNode = self.headNode,
+           let q = tracking.rawQuaternion {
+            let sel = NSSelectorFromString("setOrientation:")
+            let node = headNode as AnyObject
+            if node.responds(to: sel),
+               let imp = node.method(for: sel) {
+                typealias F = @convention(c) (AnyObject, Selector, simd_quatf) -> Void
+                unsafeBitCast(imp, to: F.self)(node, sel, q)
             }
         }
     }
@@ -177,6 +216,15 @@ public final class AvatarBridge {
     public var avatarNode: AnyObject? {
         guard let animoji else { return nil }
         let sel = NSSelectorFromString("avatarNode")
+        guard (animoji as AnyObject).responds(to: sel) else { return nil }
+        return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
+    }
+    
+    /// The camera node (VFXNode type on iOS 18+).
+    /// Used as pointOfView for camera-relative head pose transformation.
+    public var cameraNode: AnyObject? {
+        guard let animoji else { return nil }
+        let sel = NSSelectorFromString("cameraNode")
         guard (animoji as AnyObject).responds(to: sel) else { return nil }
         return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
     }
