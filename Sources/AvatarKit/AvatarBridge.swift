@@ -19,6 +19,16 @@ public final class AvatarBridge {
     /// The AVTView instance for rendering.
     public private(set) var avtView: UIView?
     
+    /// AVTView's scene camera (pointOfView). Used as pov in camera-space tracking.
+    /// Different from animoji's cameraNode — this is the scene camera that _applyHeadPose
+    /// multiplies against to transform world-space quaternions into scene-relative space.
+    public var scenePointOfView: AnyObject? {
+        guard let view = avtView else { return nil }
+        let sel = NSSelectorFromString("pointOfView")
+        guard (view as AnyObject).responds(to: sel) else { return nil }
+        return (view as AnyObject).perform(sel)?.takeUnretainedValue()
+    }
+    
     /// The character ID currently loaded.
     public private(set) var characterID: String?
     
@@ -158,11 +168,16 @@ public final class AvatarBridge {
             }
             
             // Apply head pose
+            // Camera mode: pass AVTView's scene camera as pov (has real transform).
+            // World mode: pov=nil (no camera transform needed).
+            // Apple's _applyHeadPose multiplies buffer quaternion × pov.worldTransform
+            // to transform world-space face rotation into scene-camera space.
             let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
             if obj.responds(to: poseSel),
                let imp = class_getMethodImplementation(type(of: obj), poseSel) {
                 typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                let pov = self.cameraNode
+                let isCamera = tracking.coordinateSpace != .world
+                let pov: AnyObject? = isCamera ? self.scenePointOfView : nil
                 unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, pov)
             }
         }
