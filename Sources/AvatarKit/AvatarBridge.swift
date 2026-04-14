@@ -106,21 +106,6 @@ public final class AvatarBridge {
             if view.responds(to: setAvatarSel) {
                 view.perform(setAvatarSel, with: obj)
             }
-            
-            // Configure the environment's AR camera for face tracking.
-            // This sets the internal camera node's transform to M_ref,
-            // which _applyHeadPose uses for cameraSpace=1 quaternion multiplication.
-            // Without this, the internal camera has identity worldTransform
-            // and face × camera.transform goes through uncompensated.
-            let envSel = NSSelectorFromString("environment")
-            if view.responds(to: envSel),
-               let env = view.perform(envSel)?.takeUnretainedValue() {
-                let configSel = NSSelectorFromString("configureARCameraForFaceTracking")
-                if (env as AnyObject).responds(to: configSel) {
-                    _ = (env as AnyObject).perform(configSel)
-                    print("[AvatarBridge] configureARCameraForFaceTracking called")
-                }
-            }
         }
         
         return true
@@ -204,17 +189,14 @@ public final class AvatarBridge {
             }
             
             // Apply head pose
-            // For cameraSpace=1 (camera/appleAR): pass scene's pointOfView.
-            // _applyHeadPose multiplies buffer quaternion × pov.worldTransform
-            // to transform from camera-relative to scene space.
-            // For cameraSpace=0 (world): pass nil (no camera transform needed).
+            // pov=nil: _applyHeadPose's internal camera node always has identity
+            // worldTransform in our setup (configureARCameraForFaceTracking doesn't
+            // affect it). Camera-relative math is done in AvatarFaceTracking init.
             let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
             if obj.responds(to: poseSel),
                let imp = class_getMethodImplementation(type(of: obj), poseSel) {
                 typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                let isCamera = tracking.coordinateSpace != .world
-                let pov: AnyObject? = isCamera ? self.scenePointOfView : nil
-                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, pov)
+                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
             }
         }
         

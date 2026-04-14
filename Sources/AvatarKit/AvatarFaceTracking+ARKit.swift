@@ -121,31 +121,32 @@ extension AvatarFaceTracking {
             space = .cameraRotationOnly
 
         case .appleAR:
-            // constrainHeadPose=0: Apple's exact pipeline:
-            // 1. Scale face translation uniformly by 100.0 (0x42C80000)
-            // 2. Multiply scaledFace × camera.transform (raw, no portrait correction)
-            // 3. Extract quaternion and translation from result
-            // 4. cameraSpace=1
+            // constrainHeadPose=0: camera-relative with uniform 100.0 scale.
             //
-            // Apple does NOT apply portrait correction here.
-            // The scene camera (pov) handles orientation compensation.
-            // _applyHeadPose will multiply buffer quaternion × pov.worldTransform.
+            // Apple's internal pipeline does scaledFace × camera.transform in the buffer,
+            // then _applyHeadPose multiplies by the environment camera's worldTransform
+            // (set via configureARCameraForFaceTracking) to compensate sensor rotation.
+            //
+            // We can't access that internal camera node, so we compute the final
+            // camera-relative quaternion ourselves (same as Camera mode) and use
+            // uniform 100.0 translation scale (Apple AR's defining characteristic).
             guard let frame else {
                 q = simd_quatf(faceAnchor.transform)
                 t = .zero
                 space = .cameraRotationOnly
                 break
             }
-            var scaledFace = faceAnchor.transform
-            scaledFace.columns.3 = SIMD4<Float>(
-                scaledFace.columns.3.x * Self.appleARScale,
-                scaledFace.columns.3.y * Self.appleARScale,
-                scaledFace.columns.3.z * Self.appleARScale,
-                scaledFace.columns.3.w
+            let arPortraitCorrection = simd_float4x4(
+                simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(0, 0, 1))
             )
-            let arResult = scaledFace * frame.camera.transform
-            q = simd_quatf(arResult)
-            t = SIMD3<Float>(arResult.columns.3.x, arResult.columns.3.y, arResult.columns.3.z)
+            let arCorrectedCamera = frame.camera.transform * arPortraitCorrection
+            let arRelative = simd_inverse(arCorrectedCamera) * faceAnchor.transform
+            q = simd_quatf(arRelative)
+            t = SIMD3<Float>(
+                arRelative.columns.3.x * Self.appleARScale,
+                arRelative.columns.3.y * Self.appleARScale,
+                arRelative.columns.3.z * Self.appleARScale
+            )
             space = .cameraRotationOnly
         }
 
