@@ -5,21 +5,59 @@ extension AvatarFaceTracking {
     /// Debug counter for periodic logging
     private static var debugInitCount = 0
     
-    /// World-space tracking — passes ARKit quaternion directly to the buffer.
+    /// Create tracking data from an ARKit face anchor.
     ///
-    /// ARKit's faceAnchor.transform rotation IS the delta from neutral:
-    /// - Neutral face (looking at camera) = identity rotation
-    /// - Head tilted 15° down = Rx(15°)
-    /// - Head turned 30° left = Ry(30°)
+    /// Uses camera mode (cameraSpace=1) so that `_applyHeadPose` applies the
+    /// SceneKit pov transform at render time. This is the correct approach because:
     ///
-    /// Apple's `dataWithARFrame` extracts the quaternion from the face transform
-    /// matrix directly (via `__convertARFaceAnchorTransformToSceneKitTransform`,
-    /// which returns identity × face.transform for portrait mode).
-    /// `_applyHeadPose` then sets neckNode.orientation = this quaternion.
+    /// 1. ARKit's faceAnchor.transform is in world space
+    /// 2. Apple's `dataWithARFrame` pre-bakes the camera viewMatrix into the quaternion
+    ///    (via `__convertARFaceAnchorTransformToSceneKitTransform`), then stores as world mode
+    /// 3. We don't have access to ARKit's viewMatrix, but we DO have the SceneKit pov
+    /// 4. Camera mode lets `_applyHeadPose` apply the pov transform:
+    ///    `combined = rotMatrix(q) × pov.worldTransform`
+    ///    `neckNode.orientation = quaternion(combined.rotation)`
     ///
-    /// Previous implementation decomposed to euler angles and reconstructed,
-    /// which introduced up to 0.077 error for combined rotations.
-    public init(faceAnchor: ARFaceAnchor, worldSpace: Bool = true) {
+    /// Both approaches produce the same visual result when pov matches the ARKit camera.
+    ///
+    /// The quaternion is extracted directly from the face transform matrix using
+    /// `simd_quatf(matrix)` (Shepperd's method), matching Apple's extraction in
+    /// `_AVTTrackingDataFromARFrame`. No euler decomposition is performed.
+    ///
+    /// Translation is zero because:
+    /// - In camera mode, `_applyHeadPose` computes position from `combined.translation`
+    /// - ARKit meters don't map directly to avatar coordinate units
+    /// - Apple's pipeline converts meters→avatar-units in `dataWithARFrame`; we haven't
+    ///   reverse engineered that conversion
+    public init(faceAnchor: ARFaceAnchor) {
+        var bs: [String: Float] = [:]
+        for (location, value) in faceAnchor.blendShapes {
+            bs[location.rawValue] = value.floatValue
+        }
+        
+        let q = simd_quatf(faceAnchor.transform)
+        
+        self.blendshapes = bs
+        self.headRotation = .zero
+        self.rawQuaternion = q
+        self.headTranslation = .zero
+        self.coordinateSpace = .cameraRotationOnly
+        self.timestamp = CACurrentMediaTime()
+        
+        Self.debugInitCount += 1
+        if Self.debugInitCount % 120 == 1 {
+            print("[TRACK] q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", q.imag.x, q.imag.y, q.imag.z, q.real))) mode=camera")
+        }
+    }
+    
+    /// Create tracking data with explicit coordinate space control.
+    ///
+    /// - `cameraRelative: true` (default): camera mode — `_applyHeadPose` applies pov transform.
+    ///   Use this when passing raw ARKit face quaternions.
+    /// - `cameraRelative: false`: world mode — `_applyHeadPose` sets neckNode directly.
+    ///   Use this ONLY when the quaternion has already been transformed to avatar space
+    ///   (e.g., pre-baked with viewMatrix × clampedRotation, as Apple does internally).
+    public init(faceAnchor: ARFaceAnchor, cameraRelative: Bool) {
         var bs: [String: Float] = [:]
         for (location, value) in faceAnchor.blendShapes {
             bs[location.rawValue] = value.floatValue
@@ -30,71 +68,17 @@ extension AvatarFaceTracking {
         
         self.blendshapes = bs
         self.headRotation = .zero
-        self.rawQuaternion = q  // Direct quaternion — bit-exact with Apple's pipeline
-        self.headTranslation = SIMD3(t.x, t.y, t.z)
-        self.coordinateSpace = .world
+        self.rawQuaternion = q
+        self.headTranslation = cameraRelative ? .zero : SIMD3(t.x, t.y, t.z)
+        self.coordinateSpace = cameraRelative ? .cameraRotationOnly : .world
         self.timestamp = CACurrentMediaTime()
-        
-        // === DEBUG POINT B: World init output ===
-        Self.debugInitCount += 1
-        if Self.debugInitCount % 120 == 1 {
-            print("[B-WORLD] ARKit.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", q.imag.x, q.imag.y, q.imag.z, q.real)))")
-            print("[B-WORLD] output.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", rawQuaternion!.imag.x, rawQuaternion!.imag.y, rawQuaternion!.imag.z, rawQuaternion!.real)))")
-            print("[B-WORLD] output.t=(\(String(format: "%.4f,%.4f,%.4f", headTranslation.x, headTranslation.y, headTranslation.z)))")
-            print("[B-WORLD] ---")
-        }
-    }
-    
-    /// Camera-relative tracking — same quaternion as world mode.
-    ///
-    /// From binary analysis of `dataWithARFrame` + `_applyHeadPose`:
-    /// - Buffer quaternion = face quaternion from ARKit (world-space delta from neutral)
-    /// - `_applyHeadPose` camera branch: combined = rotMatrix(q) × pov.worldTransform
-    ///   - neckNode.orientation = quaternion(combined.rotation)
-    ///   - rootJoint.position = combined.translation - convertPosition(arOffset)
-    ///
-    /// Translation is zero because raw ARKit meters don't map to avatar coordinate units.
-    /// Apple's `dataWithARFrame` converts meters→avatar-units; we haven't reverse
-    /// engineered that conversion yet.
-    public init(faceAnchor: ARFaceAnchor, cameraTransform: simd_float4x4) {
-        var bs: [String: Float] = [:]
-        for (location, value) in faceAnchor.blendShapes {
-            bs[location.rawValue] = value.floatValue
-        }
-
-        let q = simd_quatf(faceAnchor.transform)
-
-        self.blendshapes = bs
-        self.headRotation = .zero
-        self.rawQuaternion = q  // Direct quaternion — same as world mode
-        self.headTranslation = .zero  // Zero: meters→avatar-units conversion unknown
-        self.coordinateSpace = .cameraRotationOnly
-        self.timestamp = CACurrentMediaTime()
-        
-        // === DEBUG POINT B: Camera init output ===
-        Self.debugInitCount += 1
-        if Self.debugInitCount % 120 == 2 {
-            let cq = simd_quatf(cameraTransform)
-            print("[B-CAM] face.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", q.imag.x, q.imag.y, q.imag.z, q.real)))")
-            print("[B-CAM] cam.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", cq.imag.x, cq.imag.y, cq.imag.z, cq.real)))")
-            print("[B-CAM] output.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", rawQuaternion!.imag.x, rawQuaternion!.imag.y, rawQuaternion!.imag.z, rawQuaternion!.real)))")
-            print("[B-CAM] ---")
-        }
-    }
-    
-    /// Camera-relative with translation tracking.
-    public init(faceAnchor: ARFaceAnchor, cameraTransform: simd_float4x4, withTranslation: Bool) {
-        self.init(faceAnchor: faceAnchor, cameraTransform: cameraTransform)
-        if withTranslation {
-            self.coordinateSpace = .cameraFull
-        }
     }
 
     /// Create tracking data from an ARFrame (convenience).
     public init(arFrame: ARFrame) {
         let faceAnchor = arFrame.anchors.compactMap { $0 as? ARFaceAnchor }.first
         if let faceAnchor {
-            self.init(faceAnchor: faceAnchor, cameraTransform: arFrame.camera.transform)
+            self.init(faceAnchor: faceAnchor)
         } else {
             self.init()
         }
