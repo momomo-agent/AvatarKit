@@ -220,9 +220,10 @@ public final class AvatarBridge {
                 let camQ = simd_quatf(frame.camera.transform)
                 let worldQ = camQ * q
                 setNeckOrientation(worldQ)
-                // Set root joint position from translation
+                // Convert camera-space translation to world space
                 let t = tracking.headTranslation
-                setRootJointPosition(SIMD3<Float>(t.x, t.y, t.z))
+                let worldT = camQ.act(t)
+                setRootJointPosition(worldT)
             } else {
                 let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
                 if obj.responds(to: poseSel),
