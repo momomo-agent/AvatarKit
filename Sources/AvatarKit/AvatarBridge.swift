@@ -2,6 +2,7 @@ import Foundation
 import simd
 import UIKit
 import ObjectiveC
+import SceneKit
 
 // MARK: - Avatar Bridge
 
@@ -132,6 +133,26 @@ public final class AvatarBridge {
         debugApplyCount += 1
         let shouldLog = debugApplyCount % 60 == 1
         
+        // One-time log of pov.worldTransform
+        if debugApplyCount == 1, let pov = scenePointOfView {
+            let wt = (pov as AnyObject).value(forKeyPath: "worldTransform") as? SCNMatrix4
+            if let wt {
+                print("[POV] worldTransform:")
+                print("[POV]   col0=(\(wt.m11), \(wt.m21), \(wt.m31), \(wt.m41))")
+                print("[POV]   col1=(\(wt.m12), \(wt.m22), \(wt.m32), \(wt.m42))")
+                print("[POV]   col2=(\(wt.m13), \(wt.m23), \(wt.m33), \(wt.m43))")
+                print("[POV]   col3=(\(wt.m14), \(wt.m24), \(wt.m34), \(wt.m44))")
+            }
+            let t = (pov as AnyObject).value(forKeyPath: "transform") as? SCNMatrix4
+            if let t {
+                print("[POV] transform:")
+                print("[POV]   col0=(\(t.m11), \(t.m21), \(t.m31), \(t.m41))")
+                print("[POV]   col1=(\(t.m12), \(t.m22), \(t.m32), \(t.m42))")
+                print("[POV]   col2=(\(t.m13), \(t.m23), \(t.m33), \(t.m43))")
+                print("[POV]   col3=(\(t.m14), \(t.m24), \(t.m34), \(t.m44))")
+            }
+            print("[POV] scenePointOfView class: \(type(of: pov))")
+        }
         // === DEBUG POINT D-pre: Before Apple calls ===
         if shouldLog {
             if let rootPos = getRootJointPosition() {
