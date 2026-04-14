@@ -44,10 +44,11 @@ enum TrackingDataBuilder {
             // +0x08 is padding (8 bytes for SIMD alignment)
             
             // Translation at +0x10 (simd_float4, 16 bytes)
+            // w=1.0 confirmed from Apple's buffer hex: 0000803f at +0x1C
             var t = SIMD4<Float>(tracking.headTranslation.x,
                                  tracking.headTranslation.y,
                                  tracking.headTranslation.z,
-                                 0)
+                                 1)
             memcpy(ptr + 0x10, &t, 16)
             
             // Orientation quaternion at +0x20 (simd_quatf, 16 bytes)

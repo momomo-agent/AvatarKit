@@ -493,8 +493,17 @@ public final class AvatarBridge {
         let appleQuat = applePtr.load(fromByteOffset: 0x20, as: SIMD4<Float>.self)
         let appleCameraSpace = applePtr.load(fromByteOffset: 0x30, as: UInt8.self)
         
-        // Build our buffer for comparison
-        let ourData = TrackingDataBuilder.build(from: ourTracking)
+        // Build our buffer for comparison using the matching mode
+        // For AR (constrainHeadPose=false): rebuild with .appleAR to match Apple's formula
+        // For WORLD (constrainHeadPose=true): rebuild with .world to match Apple's formula
+        let cmpTracking: AvatarFaceTracking
+        if let faceAnchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first {
+            let mode: AvatarFaceTracking.TrackingMode = constrainHeadPose ? .world : .appleAR
+            cmpTracking = AvatarFaceTracking(faceAnchor: faceAnchor, frame: frame, mode: mode)
+        } else {
+            cmpTracking = ourTracking
+        }
+        let ourData = TrackingDataBuilder.build(from: cmpTracking)
         ourData.withUnsafeBytes { raw in
             guard let ourPtr = raw.baseAddress else { return }
             let ourTranslation = ourPtr.load(fromByteOffset: 0x10, as: SIMD4<Float>.self)

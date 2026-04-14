@@ -1,4 +1,5 @@
 import ARKit
+import ObjectiveC
 
 extension AvatarFaceTracking {
 
@@ -55,18 +56,21 @@ extension AvatarFaceTracking {
     ///
     /// Replicates `_AVTTrackingDataFromARFrame` (constrainHeadPose=1, portrait mode):
     ///
-    /// 1. Coordinate transform: identity for portrait (rotation matrices from binary data section)
-    /// 2. `AVTARKitTransformToSceneKitTransformMatrix`: identity for portrait mode
-    /// 3. Translation: `(t.x * 50, t.y * 20, (t.z - neutralZ) * 100)`
+    /// 1. `displayCenterTransform` translation subtracted from face position
+    ///    (Apple builds identity-rotation + negated-translation matrix, multiplies face by it)
+    /// 2. `AVTARKitTransformToSceneKitTransformMatrix`: identity for portrait→portrait
+    /// 3. Translation: `((t.x - dct.tx) * 50, (t.y - dct.ty) * 20, (t.z - dct.tz - neutralZ) * 100)`
     ///    Scale factors from binary __TEXT,__const +0x620: `(50.0, 20.0, 100.0)`
-    /// 4. Quaternion: `simd_quatf(faceTransform)` — Shepperd's method, same as Apple's
-    ///    inline extraction at +0x4e8..+0x698 in `_AVTTrackingDataFromARFrame`
+    /// 4. Quaternion: `simd_quatf(faceTransform)` — Shepperd's method (unaffected by dct)
     /// 5. cameraSpace: `constrainHeadPose ^ 1` = 0 (world mode)
     /// 6. Blendshapes: mapped via `AVTBlendShapeLocationFromARIndex` order
-    ///    (our `BlendshapeOrder.blendshapeSlotOrder` matches this exactly)
     /// 7. Smooth slots = raw slots (memcpy at +0x704..+0x758)
+    /// 8. translation.w = 1.0 (preserved from original 4x4 matrix column)
     ///
-    /// The only device-dependent value is `neutralZ` (0.0 for iPhone, -0.465 for iPad).
+    /// Device-dependent: `neutralZ` (0.0 iPhone, -0.465 iPad).
+    /// Frame-dependent: `displayCenterTransform` (camera position offset, ~constant per session).
+    ///
+    /// - Note: Without `frame`, displayCenterTransform offset is zero (translation will differ).
     public init(faceAnchor: ARFaceAnchor) {
         self.init(faceAnchor: faceAnchor, frame: nil, mode: .world)
     }
@@ -90,12 +94,46 @@ extension AvatarFaceTracking {
         switch mode {
         case .world:
             // constrainHeadPose=1: direct quaternion + scaled translation
+            //
+            // Apple's __convertARFaceAnchorTransformToSceneKitTransform (WORLD path):
+            // 1. Build modified displayCenterTransform: identity rotation + negated translation
+            // 2. Multiply: modified_dct × face → subtracts dct translation from face position
+            // 3. Multiply by orientationMatrix (identity for portrait→portrait)
+            // 4. Scale translation by (50, 20, 100), subtract neutralZ from Z
+            //
+            // Net effect on translation:
+            //   t.x = (face.x - dct.tx) * 50
+            //   t.y = (face.y - dct.ty) * 20
+            //   t.z = (face.z - dct.tz - neutralZ) * 100
+            // where dct = camera.displayCenterTransform.columns.3
+            //
+            // Quaternion is unaffected (identity rotation in both transforms).
             q = simd_quatf(faceAnchor.transform)
             let col3 = faceAnchor.transform.columns.3
+            
+            // Subtract displayCenterTransform translation (camera position offset)
+            // displayCenterTransform is a private ARCamera property (4x4 matrix).
+            // Confirmed accessible via ObjC runtime from device testing.
+            let dct: SIMD3<Float>
+            if let frame {
+                let camera = frame.camera as AnyObject
+                let sel = NSSelectorFromString("displayCenterTransform")
+                if camera.responds(to: sel),
+                   let imp = class_getMethodImplementation(type(of: camera) as? AnyClass, sel) {
+                    typealias DCTFunc = @convention(c) (AnyObject, Selector) -> simd_float4x4
+                    let dctMatrix = unsafeBitCast(imp, to: DCTFunc.self)(camera, sel)
+                    dct = SIMD3<Float>(dctMatrix.columns.3.x, dctMatrix.columns.3.y, dctMatrix.columns.3.z)
+                } else {
+                    dct = .zero
+                }
+            } else {
+                dct = .zero
+            }
+            
             t = SIMD3<Float>(
-                col3.x * Self.translationScale.x,
-                col3.y * Self.translationScale.y,
-                (col3.z - Self.neutralZ) * Self.translationScale.z
+                (col3.x - dct.x) * Self.translationScale.x,
+                (col3.y - dct.y) * Self.translationScale.y,
+                (col3.z - dct.z - Self.neutralZ) * Self.translationScale.z
             )
             space = .world
 
