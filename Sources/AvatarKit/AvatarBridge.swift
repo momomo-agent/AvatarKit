@@ -126,6 +126,8 @@ public final class AvatarBridge {
     private var debugApplyCount = 0
     /// Stored ARFrame for Apple comparison (set via applyTracking(_:frame:))
     private var lastFrame: ARFrame?
+    /// Pre-_applyHeadPose tracking data for accurate CMP comparison
+    private var preApplyTracking: AvatarFaceTracking?
     
     public func applyTracking(_ tracking: AvatarFaceTracking) {
         applyTrackingInternal(tracking)
@@ -145,6 +147,9 @@ public final class AvatarBridge {
         
         debugApplyCount += 1
         let shouldLog = debugApplyCount % 60 == 1
+        
+        // Save pre-_applyHeadPose tracking for accurate CMP comparison
+        preApplyTracking = tracking
         
         // One-time log of pov.worldTransform
         if debugApplyCount == 1, let pov = scenePointOfView {
@@ -225,9 +230,9 @@ public final class AvatarBridge {
         }
         
         // Apple buffer comparison (every 60 frames)
-        if shouldLog, let frame = lastFrame {
+        if shouldLog, let frame = lastFrame, let preTracking = preApplyTracking {
             let isWorld = tracking.coordinateSpace == .world
-            compareWithApple(frame: frame, constrainHeadPose: isWorld, ourTracking: tracking)
+            compareWithApple(frame: frame, constrainHeadPose: isWorld, ourTracking: preTracking)
         }
         
         // Fallback: NSData wrapper

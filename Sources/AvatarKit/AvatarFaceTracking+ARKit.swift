@@ -121,26 +121,25 @@ extension AvatarFaceTracking {
             space = .cameraRotationOnly
 
         case .appleAR:
-            // constrainHeadPose=0: camera-relative with uniform 100.0 scale.
+            // constrainHeadPose=0: inv(camera) × face, uniform 100.0 scale.
             //
-            // Apple's internal pipeline does scaledFace × camera.transform in the buffer,
-            // then _applyHeadPose multiplies by the environment camera's worldTransform
-            // (set via configureARCameraForFaceTracking) to compensate sensor rotation.
+            // Confirmed from Apple's AVTFaceTrackingInfo buffer comparison:
+            // - quaternion = inv(camera.transform) × face.transform (NO portrait correction)
+            // - translation = inv(camera.transform) × face.position × 100.0
+            // - cameraSpace = 1
             //
-            // We can't access that internal camera node, so we compute the final
-            // camera-relative quaternion ourselves (same as Camera mode) and use
-            // uniform 100.0 translation scale (Apple AR's defining characteristic).
+            // Apple's _applyHeadPose then compensates the sensor rotation using
+            // the internal camera node's worldTransform (M_ref). Since our internal
+            // camera is identity, the buffer quaternion goes through as-is.
+            // This means the animoji will appear rotated ~90° in our scene,
+            // which is expected — this mode exists for bit-exact buffer comparison.
             guard let frame else {
                 q = simd_quatf(faceAnchor.transform)
                 t = .zero
                 space = .cameraRotationOnly
                 break
             }
-            let arPortraitCorrection = simd_float4x4(
-                simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(0, 0, 1))
-            )
-            let arCorrectedCamera = frame.camera.transform * arPortraitCorrection
-            let arRelative = simd_inverse(arCorrectedCamera) * faceAnchor.transform
+            let arRelative = simd_inverse(frame.camera.transform) * faceAnchor.transform
             q = simd_quatf(arRelative)
             t = SIMD3<Float>(
                 arRelative.columns.3.x * Self.appleARScale,
