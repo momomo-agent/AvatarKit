@@ -3,22 +3,29 @@ import simd
 
 // MARK: - Tracking Data Builder
 
-/// Builds the 480-byte tracking data buffer consumed by AvatarKit.
+/// Builds the 480-byte tracking data buffer consumed by AvatarKit's private
+/// `_applyBlendShapesWithTrackingData:` and
+/// `_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:`.
 ///
-/// Layout (verified via AVTFaceTrackingInfo ivar + disassembly):
+/// Layout (verified against iOS 18.4 `_AVTTrackingDataFromARFrame` binary):
 /// ```
-/// 0x00   8B   timestamp          Double
-/// 0x08   8B   (padding)          alignment to 16 bytes
-/// 0x10  16B   translation        simd_float4 (x, y, z, w=0)
-/// 0x20  16B   orientation        simd_quatf (ix, iy, iz, r)
-/// 0x30   1B   cameraSpace        Bool
-/// 0x31   3B   (padding)
-/// 0x34 204B   smoothBlendshapes  Float × 51
-/// 0x100 204B  rawBlendshapes     Float × 51
-/// 0x1CC  4B   smoothParams       Float × 1 (tongueOut)
-/// 0x1D0  4B   rawParams          Float × 1 (tongueOut)
-/// 0x1D4 12B   (padding to 480)
+/// +0x00   8B   timestamp          Double (CACurrentMediaTime)
+/// +0x08   8B   (unused)           not read by _applyHeadPose
+/// +0x10  16B   translation        simd_float4 (x, y, z, w)
+///                                 Already in avatar units (ARKit meters × scale factors)
+///                                 Scale: (50.0, 20.0, 100.0) from binary __const +0x620
+/// +0x20  16B   orientation        simd_quatf (ix, iy, iz, r)
+///                                 Extracted via Shepperd's method = simd_quatf(matrix)
+/// +0x30   1B   cameraSpace        constrainHeadPose ^ 1
+///                                 Apple default: constrainHeadPose=1 → cameraSpace=0 (world)
+/// +0x31   3B   (padding)
+/// +0x34 204B   smoothBlendshapes  Float × 51 (read by _applyBlendShapes)
+/// +0x100 204B  rawBlendshapes     Float × 51 (Apple copies smooth←raw when constrainHeadPose=1)
+/// +0x1CC  4B   smoothTongueOut    Float (read by _applyBlendShapes)
+/// +0x1D0  4B   rawTongueOut       Float (Apple copies smooth←raw)
+/// +0x1D4 12B   (padding to 480)
 /// ```
+/// Total: 480 bytes (0x1E0)
 enum TrackingDataBuilder {
     
     static let bufferSize = 480
