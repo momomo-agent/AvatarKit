@@ -207,14 +207,16 @@ public final class AvatarBridge {
             }
             
             // Apply head pose
-            // pov=nil: _applyHeadPose's internal camera node always has identity
-            // worldTransform in our setup (configureARCameraForFaceTracking doesn't
-            // affect it). Camera-relative math is done in AvatarFaceTracking init.
+            // For cameraSpace=1 (AR modes), _applyHeadPose needs pointOfView to
+            // compensate the camera rotation. Without it, the ~90° Z from
+            // inv(camera) stays in the quaternion.
+            // For cameraSpace=0 (world mode), pov is ignored internally.
+            let pov: AnyObject? = tracking.coordinateSpace == .world ? nil : cameraNode
             let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
             if obj.responds(to: poseSel),
                let imp = class_getMethodImplementation(type(of: obj), poseSel) {
                 typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
+                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, pov)
             }
         }
         
