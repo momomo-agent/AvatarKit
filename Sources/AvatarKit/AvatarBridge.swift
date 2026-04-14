@@ -207,35 +207,29 @@ public final class AvatarBridge {
             }
             
             // Apply head pose
-            // For cameraSpace=1 (AR modes), _applyHeadPose multiplies:
-            //   neckQ = pov.worldTransform × trackingQ
-            // to transform camera-space quaternion into scene space.
-            // Our cameraNode has identity worldTransform, so we must set it
-            // to the AR camera transform before calling _applyHeadPose.
-            let pov: AnyObject?
-            if tracking.coordinateSpace != .world, let frame = lastFrame {
-                // Set cameraNode transform to AR camera transform
-                if let cam = cameraNode {
-                    let ct = frame.camera.transform
-                    let scnTransform = SCNMatrix4(
-                        m11: ct.columns.0.x, m12: ct.columns.1.x, m13: ct.columns.2.x, m14: ct.columns.3.x,
-                        m21: ct.columns.0.y, m22: ct.columns.1.y, m23: ct.columns.2.y, m24: ct.columns.3.y,
-                        m31: ct.columns.0.z, m32: ct.columns.1.z, m33: ct.columns.2.z, m34: ct.columns.3.z,
-                        m41: ct.columns.0.w, m42: ct.columns.1.w, m43: ct.columns.2.w, m44: ct.columns.3.w
-                    )
-                    (cam as AnyObject).setValue(NSValue(scnMatrix4: scnTransform), forKey: "transform")
-                    pov = cam
-                } else {
-                    pov = nil
-                }
+            // _applyHeadPose for cameraSpace=1 does: neckQ = inv(pov) × trackingQ
+            // With pov=nil (identity): neckQ = trackingQ directly.
+            // - .world (cameraSpace=0): uses quaternion directly ✓
+            // - .camera: portrait-corrected quaternion, pov=nil works ✓
+            // - .appleAR: quaternion is inv(cam)×face (~90° Z), pov=nil → 90° ✗
+            //   Fix: use _applyBlendShapes only, then set neckNode/rootJoint directly
+            //   with the face's world-space quaternion (cam × inv(cam) × face = face).
+            if tracking.trackingMode == .appleAR, let frame = lastFrame,
+               let q = tracking.rawQuaternion {
+                // Convert camera-space quaternion back to world space
+                let camQ = simd_quatf(frame.camera.transform)
+                let worldQ = camQ * q
+                setNeckOrientation(worldQ)
+                // Set root joint position from translation
+                let t = tracking.headTranslation
+                setRootJointPosition(SIMD3<Float>(t.x, t.y, t.z))
             } else {
-                pov = nil
-            }
-            let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
-            if obj.responds(to: poseSel),
-               let imp = class_getMethodImplementation(type(of: obj), poseSel) {
-                typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, pov)
+                let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
+                if obj.responds(to: poseSel),
+                   let imp = class_getMethodImplementation(type(of: obj), poseSel) {
+                    typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
+                    unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
+                }
             }
         }
         

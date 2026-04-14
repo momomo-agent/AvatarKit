@@ -202,6 +202,7 @@ extension AvatarFaceTracking {
         self.rawQuaternion = q
         self.headTranslation = t
         self.coordinateSpace = space
+        self.trackingMode = mode
         self.timestamp = CACurrentMediaTime()
     }
 

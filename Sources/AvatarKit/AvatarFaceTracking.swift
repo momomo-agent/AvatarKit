@@ -74,6 +74,9 @@ public struct AvatarFaceTracking: Sendable {
         set { coordinateSpace = newValue ? .cameraRotationOnly : .world }
     }
     
+    /// The tracking mode used to create this data (nil if not from ARKit).
+    public var trackingMode: AvatarFaceTracking.TrackingMode?
+    
     public init(
         blendshapes: [String: Float] = [:],
         headRotation: HeadRotation = .zero,
