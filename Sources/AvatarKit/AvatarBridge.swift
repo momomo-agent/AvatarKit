@@ -169,16 +169,14 @@ public final class AvatarBridge {
             
             // Apply head pose
             // Camera mode: pass AVTView's scene camera as pov (has real transform).
-            // World mode: pov=nil (no camera transform needed).
-            // Apple's _applyHeadPose multiplies buffer quaternion × pov.worldTransform
-            // to transform world-space face rotation into scene-camera space.
+            // pov=nil for all modes. Camera-relative math is already done in
+            // AvatarFaceTracking(faceAnchor:frame:mode:). Passing pov would apply
+            // pov.worldTransform a second time, causing size/position mismatch.
             let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
             if obj.responds(to: poseSel),
                let imp = class_getMethodImplementation(type(of: obj), poseSel) {
                 typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                let isCamera = tracking.coordinateSpace != .world
-                let pov: AnyObject? = isCamera ? self.scenePointOfView : nil
-                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, pov)
+                unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
             }
         }
         
