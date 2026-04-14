@@ -149,6 +149,7 @@ extension AvatarFaceTracking {
 
         case .camera:
             // inv(correctedCamera) × face, +90° Z for portrait TrueDepth sensor
+            // Translation centered using displayCenterTransform (same as world mode).
             guard let frame else {
                 q = simd_quatf(faceAnchor.transform)
                 t = .zero
@@ -159,7 +160,27 @@ extension AvatarFaceTracking {
                 simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(0, 0, 1))
             )
             let correctedCamera = frame.camera.transform * portraitCorrection
-            let relativeTransform = simd_inverse(correctedCamera) * faceAnchor.transform
+            
+            // Get displayCenterTransform for centering (same source as world mode)
+            let cameraDct: SIMD3<Float>
+            let cameraObj = frame.camera as AnyObject
+            let cameraDctSel = NSSelectorFromString("displayCenterTransform")
+            if cameraObj.responds(to: cameraDctSel),
+               let imp = class_getMethodImplementation(type(of: cameraObj) as? AnyClass, cameraDctSel) {
+                typealias DCTFunc = @convention(c) (AnyObject, Selector) -> simd_float4x4
+                let dctMatrix = unsafeBitCast(imp, to: DCTFunc.self)(cameraObj, cameraDctSel)
+                cameraDct = SIMD3<Float>(dctMatrix.columns.3.x, dctMatrix.columns.3.y, dctMatrix.columns.3.z)
+            } else {
+                cameraDct = .zero
+            }
+            
+            // Subtract dct in world space, then transform to camera space
+            var centeredFace = faceAnchor.transform
+            centeredFace.columns.3.x -= cameraDct.x
+            centeredFace.columns.3.y -= cameraDct.y
+            centeredFace.columns.3.z -= (cameraDct.z + Self.neutralZ)
+            
+            let relativeTransform = simd_inverse(correctedCamera) * centeredFace
             q = simd_quatf(relativeTransform)
             t = SIMD3<Float>(
                 relativeTransform.columns.3.x * Self.translationScale.x,
