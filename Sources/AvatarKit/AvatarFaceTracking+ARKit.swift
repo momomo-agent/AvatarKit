@@ -50,7 +50,8 @@ extension AvatarFaceTracking {
         #endif
     }()
 
-    // MARK: - ARKit Initializers
+    /// Debug counter for DCT logging
+    private static var dctLogCount = 0    // MARK: - ARKit Initializers
 
     /// Create tracking data from an ARKit face anchor — bit-exact with Apple's pipeline.
     ///
@@ -123,6 +124,15 @@ extension AvatarFaceTracking {
                     typealias DCTFunc = @convention(c) (AnyObject, Selector) -> simd_float4x4
                     let dctMatrix = unsafeBitCast(imp, to: DCTFunc.self)(camera, sel)
                     dct = SIMD3<Float>(dctMatrix.columns.3.x, dctMatrix.columns.3.y, dctMatrix.columns.3.z)
+                    // Debug: log full displayCenterTransform matrix
+                    if Self.dctLogCount % 60 == 0 {
+                        print("[DCT-MATRIX] col0=(\(String(format: "%.6f,%.6f,%.6f,%.6f", dctMatrix.columns.0.x, dctMatrix.columns.0.y, dctMatrix.columns.0.z, dctMatrix.columns.0.w)))")
+                        print("[DCT-MATRIX] col1=(\(String(format: "%.6f,%.6f,%.6f,%.6f", dctMatrix.columns.1.x, dctMatrix.columns.1.y, dctMatrix.columns.1.z, dctMatrix.columns.1.w)))")
+                        print("[DCT-MATRIX] col2=(\(String(format: "%.6f,%.6f,%.6f,%.6f", dctMatrix.columns.2.x, dctMatrix.columns.2.y, dctMatrix.columns.2.z, dctMatrix.columns.2.w)))")
+                        print("[DCT-MATRIX] col3=(\(String(format: "%.6f,%.6f,%.6f,%.6f", dctMatrix.columns.3.x, dctMatrix.columns.3.y, dctMatrix.columns.3.z, dctMatrix.columns.3.w)))")
+                        print("[DCT-MATRIX] dct_used=(\(String(format: "%.6f,%.6f,%.6f", dct.x, dct.y, dct.z)))")
+                    }
+                    Self.dctLogCount += 1
                 } else {
                     dct = .zero
                 }
