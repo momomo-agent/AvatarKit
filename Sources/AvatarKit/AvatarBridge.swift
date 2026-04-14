@@ -214,16 +214,19 @@ public final class AvatarBridge {
             // - .appleAR: quaternion is inv(cam)×face (~90° Z), pov=nil → 90° ✗
             //   Fix: use _applyBlendShapes only, then set neckNode/rootJoint directly
             //   with the face's world-space quaternion (cam × inv(cam) × face = face).
-            if tracking.trackingMode == .appleAR, let frame = lastFrame,
-               let q = tracking.rawQuaternion {
-                // Convert camera-space quaternion back to world space
-                let camQ = simd_quatf(frame.camera.transform)
-                let worldQ = camQ * q
-                setNeckOrientation(worldQ)
-                // Convert camera-space translation to world space
-                let t = tracking.headTranslation
-                let worldT = camQ.act(t)
-                setRootJointPosition(worldT)
+            if tracking.trackingMode == .appleAR {
+                if let frame = lastFrame, let q = tracking.rawQuaternion {
+                    // Convert camera-space quaternion back to world space
+                    let camQ = simd_quatf(frame.camera.transform)
+                    let worldQ = camQ * q
+                    setNeckOrientation(worldQ)
+                    // Convert camera-space translation to world space
+                    let t = tracking.headTranslation
+                    let worldT = camQ.act(t)
+                    setRootJointPosition(worldT)
+                }
+                // No frame → skip head pose entirely (don't fall through to _applyHeadPose
+                // which would show 90° rotated for one frame)
             } else {
                 let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
                 if obj.responds(to: poseSel),
