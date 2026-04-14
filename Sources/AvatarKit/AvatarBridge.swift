@@ -106,6 +106,21 @@ public final class AvatarBridge {
             if view.responds(to: setAvatarSel) {
                 view.perform(setAvatarSel, with: obj)
             }
+            
+            // Configure the environment's AR camera for face tracking.
+            // This sets the internal camera node's transform to M_ref,
+            // which _applyHeadPose uses for cameraSpace=1 quaternion multiplication.
+            // Without this, the internal camera has identity worldTransform
+            // and face × camera.transform goes through uncompensated.
+            let envSel = NSSelectorFromString("environment")
+            if view.responds(to: envSel),
+               let env = view.perform(envSel)?.takeUnretainedValue() {
+                let configSel = NSSelectorFromString("configureARCameraForFaceTracking")
+                if (env as AnyObject).responds(to: configSel) {
+                    _ = (env as AnyObject).perform(configSel)
+                    print("[AvatarBridge] configureARCameraForFaceTracking called")
+                }
+            }
         }
         
         return true
