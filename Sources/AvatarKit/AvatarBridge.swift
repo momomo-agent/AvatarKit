@@ -207,11 +207,30 @@ public final class AvatarBridge {
             }
             
             // Apply head pose
-            // For cameraSpace=1 (AR modes), _applyHeadPose needs pointOfView to
-            // compensate the camera rotation. Without it, the ~90° Z from
-            // inv(camera) stays in the quaternion.
-            // For cameraSpace=0 (world mode), pov is ignored internally.
-            let pov: AnyObject? = tracking.coordinateSpace == .world ? nil : cameraNode
+            // For cameraSpace=1 (AR modes), _applyHeadPose multiplies:
+            //   neckQ = pov.worldTransform × trackingQ
+            // to transform camera-space quaternion into scene space.
+            // Our cameraNode has identity worldTransform, so we must set it
+            // to the AR camera transform before calling _applyHeadPose.
+            let pov: AnyObject?
+            if tracking.coordinateSpace != .world, let frame = lastFrame {
+                // Set cameraNode transform to AR camera transform
+                if let cam = cameraNode {
+                    let ct = frame.camera.transform
+                    let scnTransform = SCNMatrix4(
+                        m11: ct.columns.0.x, m12: ct.columns.1.x, m13: ct.columns.2.x, m14: ct.columns.3.x,
+                        m21: ct.columns.0.y, m22: ct.columns.1.y, m23: ct.columns.2.y, m24: ct.columns.3.y,
+                        m31: ct.columns.0.z, m32: ct.columns.1.z, m33: ct.columns.2.z, m34: ct.columns.3.z,
+                        m41: ct.columns.0.w, m42: ct.columns.1.w, m43: ct.columns.2.w, m44: ct.columns.3.w
+                    )
+                    (cam as AnyObject).setValue(NSValue(scnMatrix4: scnTransform), forKey: "transform")
+                    pov = cam
+                } else {
+                    pov = nil
+                }
+            } else {
+                pov = nil
+            }
             let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
             if obj.responds(to: poseSel),
                let imp = class_getMethodImplementation(type(of: obj), poseSel) {
