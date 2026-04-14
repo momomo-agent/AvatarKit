@@ -124,11 +124,11 @@ public final class AvatarBridge {
         
         // === DEBUG POINT D-pre: Before Apple calls ===
         if shouldLog {
-            if let neckPos = getNeckPosition() {
-                print("[D-PRE] neckPos=(\(String(format: "%.4f,%.4f,%.4f", neckPos.x, neckPos.y, neckPos.z)))")
+            if let rootPos = getRootJointPosition() {
+                print("[D-PRE] rootJointPos=(\(String(format: "%.4f,%.4f,%.4f", rootPos.x, rootPos.y, rootPos.z)))")
             }
-            if let headQ = getHeadOrientation() {
-                print("[D-PRE] headQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", headQ.imag.x, headQ.imag.y, headQ.imag.z, headQ.real)))")
+            if let neckQ = getNeckOrientation() {
+                print("[D-PRE] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
             }
             if let wt = getCameraWorldTransform() {
                 let camQ = simd_quatf(wt)
@@ -169,11 +169,11 @@ public final class AvatarBridge {
         
         // === DEBUG POINT D-post: After Apple calls ===
         if shouldLog {
-            if let neckPos = getNeckPosition() {
-                print("[D-POST] neckPos=(\(String(format: "%.4f,%.4f,%.4f", neckPos.x, neckPos.y, neckPos.z)))")
+            if let rootPos = getRootJointPosition() {
+                print("[D-POST] rootJointPos=(\(String(format: "%.4f,%.4f,%.4f", rootPos.x, rootPos.y, rootPos.z)))")
             }
-            if let headQ = getHeadOrientation() {
-                print("[D-POST] headQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", headQ.imag.x, headQ.imag.y, headQ.imag.z, headQ.real)))")
+            if let neckQ = getNeckOrientation() {
+                print("[D-POST] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
             }
             print("[D-POST] ---")
         }
@@ -190,7 +190,7 @@ public final class AvatarBridge {
     }
     
     /// Apply face tracking with direct head pose control.
-    /// Uses _applyBlendShapes for expressions but sets headNode.orientation directly,
+    /// Uses _applyBlendShapes for expressions but sets neckNode(head_JNT) orientation directly,
     /// bypassing _applyHeadPose and its pointOfView multiplication.
     public func applyTrackingDirect(_ tracking: AvatarFaceTracking) {
         guard let animoji else { return }
@@ -210,16 +210,9 @@ public final class AvatarBridge {
             }
         }
         
-        // Set head orientation directly via ObjC runtime
-        if let headNode = self.headNode,
-           let q = tracking.rawQuaternion {
-            let sel = NSSelectorFromString("setOrientation:")
-            let node = headNode as AnyObject
-            if node.responds(to: sel),
-               let imp = node.method(for: sel) {
-                typealias F = @convention(c) (AnyObject, Selector, simd_quatf) -> Void
-                unsafeBitCast(imp, to: F.self)(node, sel, q)
-            }
+        // Set orientation on neckNode (head_JNT) — this is where Apple sets it
+        if let q = tracking.rawQuaternion {
+            setNeckOrientation(q)
         }
     }
     
@@ -229,8 +222,19 @@ public final class AvatarBridge {
     }
     
     // MARK: - Node Access (VFXNode, not SCNNode)
+    //
+    // Node hierarchy (from ivar analysis 2026-04-13):
+    //   AVTAnimoji._headNode   (0x100) = 'head'      — mesh node (visual)
+    //   AVTAvatar._headNode    (0x18)  = 'head'      — same, inherited
+    //   AVTAvatar._neckNode    (0x30)  = 'head_JNT'  — bone joint (Apple sets orientation here)
+    //   AVTAvatar._rootJointNode(0x38) = 'root_JNT'  — root bone (Apple sets position here)
+    //   AVTAnimoji._cameraNode (0x110) = 'cameras'   — camera node
+    //
+    // _applyHeadPose uses:
+    //   [self._neckNode setOrientation:]     — NOT headNode!
+    //   [self._rootJointNode setPosition:]   — NOT neckNode!
     
-    /// The head node (VFXNode type on iOS 18+).
+    /// The head mesh node ('head'). Visual node, NOT where Apple sets orientation.
     public var headNode: AnyObject? {
         guard let animoji else { return nil }
         let sel = NSSelectorFromString("headNode")
@@ -238,10 +242,18 @@ public final class AvatarBridge {
         return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
     }
     
-    /// The neck node (VFXNode type on iOS 18+).
+    /// The neck bone joint ('head_JNT'). Apple's _applyHeadPose sets orientation on this node.
     public var neckNode: AnyObject? {
         guard let animoji else { return nil }
         let sel = NSSelectorFromString("neckNode")
+        guard (animoji as AnyObject).responds(to: sel) else { return nil }
+        return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
+    }
+    
+    /// The root bone joint ('root_JNT'). Apple's _applyHeadPose sets position on this node.
+    public var rootJointNode: AnyObject? {
+        guard let animoji else { return nil }
+        let sel = NSSelectorFromString("rootJointNode")
         guard (animoji as AnyObject).responds(to: sel) else { return nil }
         return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
     }
@@ -254,8 +266,7 @@ public final class AvatarBridge {
         return (animoji as AnyObject).perform(sel)?.takeUnretainedValue()
     }
     
-    /// The camera node (VFXNode type on iOS 18+).
-    /// Used as pointOfView for camera-relative head pose transformation.
+    /// The camera node ('cameras'). Used as pointOfView for camera-relative head pose.
     public var cameraNode: AnyObject? {
         guard let animoji else { return nil }
         let sel = NSSelectorFromString("cameraNode")
@@ -276,7 +287,32 @@ public final class AvatarBridge {
     
     // MARK: - Direct Node Manipulation
     
-    /// Read the neck node's current position.
+    /// Read the root joint's current position ('root_JNT').
+    /// This is where Apple's _applyHeadPose sets position.
+    public func getRootJointPosition() -> SIMD3<Float>? {
+        guard let node = rootJointNode else { return nil }
+        let sel = NSSelectorFromString("position")
+        let obj = node as AnyObject
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return nil }
+        typealias F = @convention(c) (AnyObject, Selector) -> SIMD4<Float>
+        let pos = unsafeBitCast(imp, to: F.self)(obj, sel)
+        return SIMD3(pos.x, pos.y, pos.z)
+    }
+    
+    /// Read the neck joint's current orientation ('head_JNT').
+    /// This is where Apple's _applyHeadPose sets orientation.
+    public func getNeckOrientation() -> simd_quatf? {
+        guard let node = neckNode else { return nil }
+        let sel = NSSelectorFromString("orientation")
+        let obj = node as AnyObject
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return nil }
+        typealias F = @convention(c) (AnyObject, Selector) -> simd_quatf
+        return unsafeBitCast(imp, to: F.self)(obj, sel)
+    }
+    
+    /// Read the neck node's current position ('head_JNT').
     public func getNeckPosition() -> SIMD3<Float>? {
         guard let node = neckNode else { return nil }
         let sel = NSSelectorFromString("position")
@@ -288,7 +324,9 @@ public final class AvatarBridge {
         return SIMD3(pos.x, pos.y, pos.z)
     }
     
-    /// Read the head node's current orientation (quaternion).
+    /// Read the head mesh node's current orientation ('head').
+    /// Note: this is the mesh node, NOT where Apple sets orientation.
+    /// Use getNeckOrientation() for the bone joint that Apple actually drives.
     public func getHeadOrientation() -> simd_quatf? {
         guard let node = headNode else { return nil }
         let sel = NSSelectorFromString("orientation")
@@ -299,7 +337,30 @@ public final class AvatarBridge {
         return unsafeBitCast(imp, to: F.self)(obj, sel)
     }
     
-    /// Set the neck node's position directly (bypasses _applyHeadPose translation).
+    /// Set the root joint's position directly ('root_JNT').
+    public func setRootJointPosition(_ position: SIMD3<Float>) {
+        guard let node = rootJointNode else { return }
+        let sel = NSSelectorFromString("setPosition:")
+        let obj = node as AnyObject
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return }
+        let pos = SIMD4<Float>(position.x, position.y, position.z, 0)
+        typealias F = @convention(c) (AnyObject, Selector, SIMD4<Float>) -> Void
+        unsafeBitCast(imp, to: F.self)(obj, sel, pos)
+    }
+    
+    /// Set the neck joint's orientation directly ('head_JNT').
+    public func setNeckOrientation(_ orientation: simd_quatf) {
+        guard let node = neckNode else { return }
+        let sel = NSSelectorFromString("setOrientation:")
+        let obj = node as AnyObject
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return }
+        typealias F = @convention(c) (AnyObject, Selector, simd_quatf) -> Void
+        unsafeBitCast(imp, to: F.self)(obj, sel, orientation)
+    }
+    
+    /// Set the neck node's position directly.
     public func setNeckPosition(_ position: SIMD3<Float>) {
         guard let node = neckNode else { return }
         let sel = NSSelectorFromString("setPosition:")
