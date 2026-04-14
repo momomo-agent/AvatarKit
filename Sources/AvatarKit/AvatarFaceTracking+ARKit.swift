@@ -2,6 +2,26 @@ import ARKit
 
 extension AvatarFaceTracking {
 
+    // MARK: - Tracking Mode
+
+    /// Tracking mode determines how head pose is computed from ARKit data.
+    public enum TrackingMode: String, CaseIterable, Sendable {
+        /// Apple's constrainHeadPose=1 (default). Head constrained to small range.
+        /// Translation scaled by (50, 20, 100), neutralZ subtracted, cameraSpace=0.
+        /// Used by Animoji/Memoji stickers, iMessage recording.
+        case world
+
+        /// Our camera-relative mode. inv(correctedCamera) × face.
+        /// +90° Z compensates TrueDepth sensor landscape orientation.
+        /// Translation scaled by (50, 20, 100), cameraSpace=1.
+        case camera
+
+        /// Apple's constrainHeadPose=0. Free head movement, camera-relative.
+        /// Translation scaled uniformly by 100.0, then face × camera.transform.
+        /// cameraSpace=1.
+        case appleAR
+    }
+
     // MARK: - Translation Constants (from binary analysis)
 
     /// Translation scale factors extracted from AvatarKit binary at __TEXT,__const +0x620.
@@ -10,6 +30,10 @@ extension AvatarFaceTracking {
     ///
     /// ARKit translation is in meters; these convert to avatar coordinate units.
     private static let translationScale = SIMD3<Float>(50.0, 20.0, 100.0)
+
+    /// Uniform translation scale for Apple AR mode (constrainHeadPose=0).
+    /// 0x42C80000 = 100.0f (IEEE 754). Applied uniformly to all axes.
+    private static let appleARScale: Float = 100.0
 
     /// Neutral Z offset subtracted from translation.z before scaling.
     /// Determined by `AVTGetNeutralZ()` via `dispatch_once` + `UIDevice.userInterfaceIdiom`:
@@ -44,39 +68,93 @@ extension AvatarFaceTracking {
     ///
     /// The only device-dependent value is `neutralZ` (0.0 for iPhone, -0.465 for iPad).
     public init(faceAnchor: ARFaceAnchor) {
+        self.init(faceAnchor: faceAnchor, frame: nil, mode: .world)
+    }
+
+    /// Create tracking data from an ARKit face anchor with a specific tracking mode.
+    ///
+    /// - Parameters:
+    ///   - faceAnchor: The face anchor from ARKit.
+    ///   - frame: The AR frame (required for `.camera` and `.appleAR` modes).
+    ///   - mode: The tracking mode to use.
+    public init(faceAnchor: ARFaceAnchor, frame: ARFrame?, mode: TrackingMode) {
         var bs: [String: Float] = [:]
         for (location, value) in faceAnchor.blendShapes {
             bs[location.rawValue] = value.floatValue
         }
 
-        // Quaternion: direct extraction from face transform matrix.
-        // simd_quatf(matrix) uses Shepperd's method internally,
-        // identical to Apple's inline implementation in _AVTTrackingDataFromARFrame.
-        let q = simd_quatf(faceAnchor.transform)
+        let q: simd_quatf
+        let t: SIMD3<Float>
+        let space: CoordinateSpace
 
-        // Translation: apply Apple's scale factors.
-        // For portrait mode, coordTransform = identity, so face transform = ARKit transform.
-        let t = faceAnchor.transform.columns.3
-        let scaledT = SIMD3<Float>(
-            t.x * Self.translationScale.x,
-            t.y * Self.translationScale.y,
-            (t.z - Self.neutralZ) * Self.translationScale.z
-        )
+        switch mode {
+        case .world:
+            // constrainHeadPose=1: direct quaternion + scaled translation
+            q = simd_quatf(faceAnchor.transform)
+            let col3 = faceAnchor.transform.columns.3
+            t = SIMD3<Float>(
+                col3.x * Self.translationScale.x,
+                col3.y * Self.translationScale.y,
+                (col3.z - Self.neutralZ) * Self.translationScale.z
+            )
+            space = .world
+
+        case .camera:
+            // inv(correctedCamera) × face, +90° Z for portrait TrueDepth sensor
+            guard let frame else {
+                q = simd_quatf(faceAnchor.transform)
+                t = .zero
+                space = .cameraRotationOnly
+                break
+            }
+            let portraitCorrection = simd_float4x4(
+                simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(0, 0, 1))
+            )
+            let correctedCamera = frame.camera.transform * portraitCorrection
+            let relativeTransform = simd_inverse(correctedCamera) * faceAnchor.transform
+            q = simd_quatf(relativeTransform)
+            t = SIMD3<Float>(
+                relativeTransform.columns.3.x * Self.translationScale.x,
+                relativeTransform.columns.3.y * Self.translationScale.y,
+                relativeTransform.columns.3.z * Self.translationScale.z
+            )
+            space = .cameraRotationOnly
+
+        case .appleAR:
+            // constrainHeadPose=0: scale translation × 100, then face × camera.transform
+            guard let frame else {
+                q = simd_quatf(faceAnchor.transform)
+                t = .zero
+                space = .cameraRotationOnly
+                break
+            }
+            var scaledFace = faceAnchor.transform
+            scaledFace.columns.3 = SIMD4<Float>(
+                scaledFace.columns.3.x * Self.appleARScale,
+                scaledFace.columns.3.y * Self.appleARScale,
+                scaledFace.columns.3.z * Self.appleARScale,
+                scaledFace.columns.3.w
+            )
+            let arResult = scaledFace * frame.camera.transform
+            q = simd_quatf(arResult)
+            t = SIMD3<Float>(arResult.columns.3.x, arResult.columns.3.y, arResult.columns.3.z)
+            space = .cameraRotationOnly
+        }
 
         self.blendshapes = bs
         self.headRotation = .zero
         self.rawQuaternion = q
-        self.headTranslation = scaledT
-        self.coordinateSpace = .world  // constrainHeadPose ^ 1 = 0
+        self.headTranslation = t
+        self.coordinateSpace = space
         self.timestamp = CACurrentMediaTime()
     }
 
     /// Create tracking data from an ARFrame (convenience).
     /// Uses the first face anchor found in the frame.
-    public init(arFrame: ARFrame) {
+    public init(arFrame: ARFrame, mode: TrackingMode = .world) {
         let faceAnchor = arFrame.anchors.compactMap { $0 as? ARFaceAnchor }.first
         if let faceAnchor {
-            self.init(faceAnchor: faceAnchor)
+            self.init(faceAnchor: faceAnchor, frame: arFrame, mode: mode)
         } else {
             self.init()
         }
