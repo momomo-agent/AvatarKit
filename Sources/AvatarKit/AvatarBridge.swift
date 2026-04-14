@@ -427,58 +427,42 @@ public final class AvatarBridge {
     // MARK: - Apple Buffer Comparison
     
     /// Compare our tracking buffer with Apple's AVTFaceTrackingInfo output.
-    /// Call with the ARFrame and constrainHeadPose value to get Apple's reference.
     public func compareWithApple(frame: ARFrame, constrainHeadPose: Bool, ourTracking: AvatarFaceTracking) {
-        guard let cls = NSClassFromString("AVTFaceTrackingInfo") else {
+        guard let cls = NSClassFromString("AVTFaceTrackingInfo") as? NSObject.Type else {
             print("[CMP] AVTFaceTrackingInfo not found")
             return
         }
         
         // +[AVTFaceTrackingInfo trackingInfoWithARFrame:inputOrientation:outputOrientation:constrainHeadPose:]
         let sel = NSSelectorFromString("trackingInfoWithARFrame:inputOrientation:outputOrientation:constrainHeadPose:")
-        guard (cls as AnyObject).responds(to: sel) else {
-            print("[CMP] selector not found")
-            return
-        }
         
-        // inputOrientation=1 (portrait), outputOrientation=1 (portrait)
-        typealias CreateFunc = @convention(c) (AnyObject, Selector, AnyObject, Int, Int, Bool) -> AnyObject?
-        guard let imp = (cls as AnyObject).perform(NSSelectorFromString("methodForSelector:"), with: sel)?.takeUnretainedValue() else {
-            print("[CMP] can't get IMP")
-            return
-        }
-        
-        // Use class_getClassMethod + method_getImplementation for class methods
-        guard let method = class_getClassMethod(cls as? AnyClass, sel) else {
+        // Get the class method IMP directly via objc runtime
+        guard let method = class_getClassMethod(cls, sel) else {
             print("[CMP] can't get class method")
             return
         }
         let funcImp = method_getImplementation(method)
+        typealias CreateFunc = @convention(c) (AnyObject, Selector, AnyObject, Int, Int, Bool) -> AnyObject?
         let createFunc = unsafeBitCast(funcImp, to: CreateFunc.self)
         
-        guard let trackingInfo = createFunc(cls as AnyObject, sel, frame, 1, 1, constrainHeadPose) else {
+        guard let trackingInfo = createFunc(cls, sel, frame, 1, 1, constrainHeadPose) else {
             print("[CMP] Apple returned nil")
             return
         }
         
-        // Get trackingData pointer from the trackingInfo
+        // trackingData returns a pointer to the internal struct (ivar at offset 16)
         let tdSel = NSSelectorFromString("trackingData")
-        guard (trackingInfo as AnyObject).responds(to: tdSel) else {
-            print("[CMP] no trackingData property")
+        guard let tdMethod = class_getInstanceMethod(type(of: trackingInfo) as? AnyClass, tdSel) else {
+            print("[CMP] can't get trackingData method")
             return
         }
-        
-        // trackingData returns a pointer to the struct
+        let tdImp = method_getImplementation(tdMethod)
         typealias TDFunc = @convention(c) (AnyObject, Selector) -> UnsafeRawPointer
-        guard let tdImp = class_getMethodImplementation(type(of: trackingInfo as AnyObject), tdSel) else {
-            print("[CMP] can't get trackingData IMP")
-            return
-        }
-        let applePtr = unsafeBitCast(tdImp, to: TDFunc.self)(trackingInfo as AnyObject, tdSel)
+        let applePtr = unsafeBitCast(tdImp, to: TDFunc.self)(trackingInfo, tdSel)
         
         // Read Apple's buffer fields
         let appleTranslation = applePtr.load(fromByteOffset: 0x10, as: SIMD4<Float>.self)
-        let appleQuat = applePtr.load(fromByteOffset: 0x20, as: simd_quatf.self)
+        let appleQuat = applePtr.load(fromByteOffset: 0x20, as: SIMD4<Float>.self)
         let appleCameraSpace = applePtr.load(fromByteOffset: 0x30, as: UInt8.self)
         
         // Build our buffer for comparison
@@ -486,20 +470,29 @@ public final class AvatarBridge {
         ourData.withUnsafeBytes { raw in
             guard let ourPtr = raw.baseAddress else { return }
             let ourTranslation = ourPtr.load(fromByteOffset: 0x10, as: SIMD4<Float>.self)
-            let ourQuat = ourPtr.load(fromByteOffset: 0x20, as: simd_quatf.self)
+            let ourQuat = ourPtr.load(fromByteOffset: 0x20, as: SIMD4<Float>.self)
             let ourCameraSpace = ourPtr.load(fromByteOffset: 0x30, as: UInt8.self)
             
             let tDiff = simd_length(appleTranslation - ourTranslation)
-            let qDot = abs(simd_dot(appleQuat, ourQuat))
+            // quaternion dot product (treat as SIMD4 to handle sign)
+            let qDot = abs(simd_dot(appleQuat, ourQuat) / (simd_length(appleQuat) * simd_length(ourQuat)))
             
-            let mode = constrainHeadPose ? "WORLD" : "APPLE_AR"
-            print("[CMP-\(mode)] apple.t=(\(String(format: "%.4f,%.4f,%.4f", appleTranslation.x, appleTranslation.y, appleTranslation.z)))")
-            print("[CMP-\(mode)]   our.t=(\(String(format: "%.4f,%.4f,%.4f", ourTranslation.x, ourTranslation.y, ourTranslation.z)))")
+            let mode = constrainHeadPose ? "WORLD" : "AR"
+            print("[CMP-\(mode)] apple.t=(\(String(format: "%.4f,%.4f,%.4f,%.4f", appleTranslation.x, appleTranslation.y, appleTranslation.z, appleTranslation.w)))")
+            print("[CMP-\(mode)]   our.t=(\(String(format: "%.4f,%.4f,%.4f,%.4f", ourTranslation.x, ourTranslation.y, ourTranslation.z, ourTranslation.w)))")
             print("[CMP-\(mode)]   t_diff=\(String(format: "%.6f", tDiff))")
-            print("[CMP-\(mode)] apple.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", appleQuat.imag.x, appleQuat.imag.y, appleQuat.imag.z, appleQuat.real)))")
-            print("[CMP-\(mode)]   our.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", ourQuat.imag.x, ourQuat.imag.y, ourQuat.imag.z, ourQuat.real)))")
+            print("[CMP-\(mode)] apple.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", appleQuat.x, appleQuat.y, appleQuat.z, appleQuat.w)))")
+            print("[CMP-\(mode)]   our.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", ourQuat.x, ourQuat.y, ourQuat.z, ourQuat.w)))")
             print("[CMP-\(mode)]   q_dot=\(String(format: "%.8f", qDot)) (1.0=identical)")
             print("[CMP-\(mode)] apple.cs=\(appleCameraSpace) our.cs=\(ourCameraSpace)")
+            
+            // Also compare first 5 blendshapes
+            let appleBS0 = applePtr.load(fromByteOffset: 0x34, as: Float.self)
+            let appleBS1 = applePtr.load(fromByteOffset: 0x38, as: Float.self)
+            let ourBS0 = ourPtr.load(fromByteOffset: 0x34, as: Float.self)
+            let ourBS1 = ourPtr.load(fromByteOffset: 0x38, as: Float.self)
+            print("[CMP-\(mode)] apple.bs[0,1]=(\(String(format: "%.4f,%.4f", appleBS0, appleBS1)))")
+            print("[CMP-\(mode)]   our.bs[0,1]=(\(String(format: "%.4f,%.4f", ourBS0, ourBS1)))")
             print("[CMP-\(mode)] ---")
         }
     }
