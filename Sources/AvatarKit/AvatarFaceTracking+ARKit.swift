@@ -85,7 +85,12 @@ extension AvatarFaceTracking {
         self.blendshapes = bs
         self.headRotation = .zero
         self.rawQuaternion = qP * qY * qR
-        self.headTranslation = SIMD3(t.x, t.y, t.z)
+        // Camera mode: zero translation. Raw ARKit meters don't map to avatar units,
+        // and _applyHeadPose camera branch subtracts arOffset then transforms by
+        // pov.worldTransform — small meter values produce wildly wrong positions.
+        // Apple's dataWithARFrame does a meters→avatar-units conversion we haven't
+        // reverse engineered yet. Translation tracking requires that conversion.
+        self.headTranslation = .zero
         self.coordinateSpace = .cameraRotationOnly
         self.timestamp = CACurrentMediaTime()
         
