@@ -3,6 +3,7 @@ import simd
 import UIKit
 import ObjectiveC
 import SceneKit
+import ARKit
 
 // MARK: - Avatar Bridge
 
@@ -123,8 +124,20 @@ public final class AvatarBridge {
     /// if the direct methods are unavailable.
     /// Debug counter for periodic logging
     private var debugApplyCount = 0
+    /// Stored ARFrame for Apple comparison (set via applyTracking(_:frame:))
+    private var lastFrame: ARFrame?
     
     public func applyTracking(_ tracking: AvatarFaceTracking) {
+        applyTrackingInternal(tracking)
+    }
+    
+    /// Apply tracking with ARFrame reference for Apple buffer comparison.
+    public func applyTracking(_ tracking: AvatarFaceTracking, frame: ARFrame?) {
+        lastFrame = frame
+        applyTrackingInternal(tracking)
+    }
+    
+    private func applyTrackingInternal(_ tracking: AvatarFaceTracking) {
         guard let animoji else { return }
         let obj = animoji as AnyObject
         
@@ -209,6 +222,12 @@ public final class AvatarBridge {
                 print("[D-POST] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
             }
             print("[D-POST] ---")
+        }
+        
+        // Apple buffer comparison (every 60 frames)
+        if shouldLog, let frame = lastFrame {
+            let isWorld = tracking.coordinateSpace == .world
+            compareWithApple(frame: frame, constrainHeadPose: isWorld, ourTracking: tracking)
         }
         
         // Fallback: NSData wrapper
@@ -403,5 +422,85 @@ public final class AvatarBridge {
         let pos = SIMD4<Float>(position.x, position.y, position.z, 0)
         typealias F = @convention(c) (AnyObject, Selector, SIMD4<Float>) -> Void
         unsafeBitCast(imp, to: F.self)(obj, sel, pos)
+    }
+    
+    // MARK: - Apple Buffer Comparison
+    
+    /// Compare our tracking buffer with Apple's AVTFaceTrackingInfo output.
+    /// Call with the ARFrame and constrainHeadPose value to get Apple's reference.
+    public func compareWithApple(frame: ARFrame, constrainHeadPose: Bool, ourTracking: AvatarFaceTracking) {
+        guard let cls = NSClassFromString("AVTFaceTrackingInfo") else {
+            print("[CMP] AVTFaceTrackingInfo not found")
+            return
+        }
+        
+        // +[AVTFaceTrackingInfo trackingInfoWithARFrame:inputOrientation:outputOrientation:constrainHeadPose:]
+        let sel = NSSelectorFromString("trackingInfoWithARFrame:inputOrientation:outputOrientation:constrainHeadPose:")
+        guard (cls as AnyObject).responds(to: sel) else {
+            print("[CMP] selector not found")
+            return
+        }
+        
+        // inputOrientation=1 (portrait), outputOrientation=1 (portrait)
+        typealias CreateFunc = @convention(c) (AnyObject, Selector, AnyObject, Int, Int, Bool) -> AnyObject?
+        guard let imp = (cls as AnyObject).perform(NSSelectorFromString("methodForSelector:"), with: sel)?.takeUnretainedValue() else {
+            print("[CMP] can't get IMP")
+            return
+        }
+        
+        // Use class_getClassMethod + method_getImplementation for class methods
+        guard let method = class_getClassMethod(cls as? AnyClass, sel) else {
+            print("[CMP] can't get class method")
+            return
+        }
+        let funcImp = method_getImplementation(method)
+        let createFunc = unsafeBitCast(funcImp, to: CreateFunc.self)
+        
+        guard let trackingInfo = createFunc(cls as AnyObject, sel, frame, 1, 1, constrainHeadPose) else {
+            print("[CMP] Apple returned nil")
+            return
+        }
+        
+        // Get trackingData pointer from the trackingInfo
+        let tdSel = NSSelectorFromString("trackingData")
+        guard (trackingInfo as AnyObject).responds(to: tdSel) else {
+            print("[CMP] no trackingData property")
+            return
+        }
+        
+        // trackingData returns a pointer to the struct
+        typealias TDFunc = @convention(c) (AnyObject, Selector) -> UnsafeRawPointer
+        guard let tdImp = class_getMethodImplementation(type(of: trackingInfo as AnyObject), tdSel) else {
+            print("[CMP] can't get trackingData IMP")
+            return
+        }
+        let applePtr = unsafeBitCast(tdImp, to: TDFunc.self)(trackingInfo as AnyObject, tdSel)
+        
+        // Read Apple's buffer fields
+        let appleTranslation = applePtr.load(fromByteOffset: 0x10, as: SIMD4<Float>.self)
+        let appleQuat = applePtr.load(fromByteOffset: 0x20, as: simd_quatf.self)
+        let appleCameraSpace = applePtr.load(fromByteOffset: 0x30, as: UInt8.self)
+        
+        // Build our buffer for comparison
+        let ourData = TrackingDataBuilder.build(from: ourTracking)
+        ourData.withUnsafeBytes { raw in
+            guard let ourPtr = raw.baseAddress else { return }
+            let ourTranslation = ourPtr.load(fromByteOffset: 0x10, as: SIMD4<Float>.self)
+            let ourQuat = ourPtr.load(fromByteOffset: 0x20, as: simd_quatf.self)
+            let ourCameraSpace = ourPtr.load(fromByteOffset: 0x30, as: UInt8.self)
+            
+            let tDiff = simd_length(appleTranslation - ourTranslation)
+            let qDot = abs(simd_dot(appleQuat, ourQuat))
+            
+            let mode = constrainHeadPose ? "WORLD" : "APPLE_AR"
+            print("[CMP-\(mode)] apple.t=(\(String(format: "%.4f,%.4f,%.4f", appleTranslation.x, appleTranslation.y, appleTranslation.z)))")
+            print("[CMP-\(mode)]   our.t=(\(String(format: "%.4f,%.4f,%.4f", ourTranslation.x, ourTranslation.y, ourTranslation.z)))")
+            print("[CMP-\(mode)]   t_diff=\(String(format: "%.6f", tDiff))")
+            print("[CMP-\(mode)] apple.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", appleQuat.imag.x, appleQuat.imag.y, appleQuat.imag.z, appleQuat.real)))")
+            print("[CMP-\(mode)]   our.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", ourQuat.imag.x, ourQuat.imag.y, ourQuat.imag.z, ourQuat.real)))")
+            print("[CMP-\(mode)]   q_dot=\(String(format: "%.8f", qDot)) (1.0=identical)")
+            print("[CMP-\(mode)] apple.cs=\(appleCameraSpace) our.cs=\(ourCameraSpace)")
+            print("[CMP-\(mode)] ---")
+        }
     }
 }
