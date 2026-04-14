@@ -121,13 +121,19 @@ extension AvatarFaceTracking {
             space = .cameraRotationOnly
 
         case .appleAR:
-            // constrainHeadPose=0: scale translation × 100, then face × camera.transform
+            // constrainHeadPose=0: scale translation × 100, then face × correctedCamera
+            // Camera.transform includes TrueDepth sensor landscape orientation;
+            // apply same portrait correction as camera mode.
             guard let frame else {
                 q = simd_quatf(faceAnchor.transform)
                 t = .zero
                 space = .cameraRotationOnly
                 break
             }
+            let arPortraitCorrection = simd_float4x4(
+                simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(0, 0, 1))
+            )
+            let correctedCameraAR = frame.camera.transform * arPortraitCorrection
             var scaledFace = faceAnchor.transform
             scaledFace.columns.3 = SIMD4<Float>(
                 scaledFace.columns.3.x * Self.appleARScale,
@@ -135,7 +141,7 @@ extension AvatarFaceTracking {
                 scaledFace.columns.3.z * Self.appleARScale,
                 scaledFace.columns.3.w
             )
-            let arResult = scaledFace * frame.camera.transform
+            let arResult = scaledFace * correctedCameraAR
             q = simd_quatf(arResult)
             t = SIMD3<Float>(arResult.columns.3.x, arResult.columns.3.y, arResult.columns.3.z)
             space = .cameraRotationOnly
