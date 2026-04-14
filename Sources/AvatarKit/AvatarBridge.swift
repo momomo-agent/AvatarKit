@@ -460,6 +460,29 @@ public final class AvatarBridge {
         typealias TDFunc = @convention(c) (AnyObject, Selector) -> UnsafeRawPointer
         let applePtr = unsafeBitCast(tdImp, to: TDFunc.self)(trackingInfo, tdSel)
         
+        // Dump first 64 bytes of Apple's buffer as hex for layout verification
+        let mode = constrainHeadPose ? "WORLD" : "AR"
+        var hexDump = ""
+        for i in 0..<64 {
+            let byte = applePtr.load(fromByteOffset: i, as: UInt8.self)
+            hexDump += String(format: "%02x", byte)
+            if (i + 1) % 16 == 0 { hexDump += "\n" }
+            else if (i + 1) % 4 == 0 { hexDump += " " }
+        }
+        print("[CMP-\(mode)] apple raw hex (64 bytes):")
+        for line in hexDump.split(separator: "\n") {
+            print("[CMP-\(mode)]   \(line)")
+        }
+        
+        // Also dump the face anchor transform from the frame for reference
+        if let faceAnchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first {
+            let ft = faceAnchor.transform
+            print("[CMP-\(mode)] frame face.t=(\(String(format: "%.4f,%.4f,%.4f", ft.columns.3.x, ft.columns.3.y, ft.columns.3.z)))")
+            print("[CMP-\(mode)] frame face.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", simd_quatf(ft).imag.x, simd_quatf(ft).imag.y, simd_quatf(ft).imag.z, simd_quatf(ft).real)))")
+            let ct = frame.camera.transform
+            print("[CMP-\(mode)] frame cam.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", simd_quatf(ct).imag.x, simd_quatf(ct).imag.y, simd_quatf(ct).imag.z, simd_quatf(ct).real)))")
+        }
+        
         // Read Apple's buffer fields
         let appleTranslation = applePtr.load(fromByteOffset: 0x10, as: SIMD4<Float>.self)
         let appleQuat = applePtr.load(fromByteOffset: 0x20, as: SIMD4<Float>.self)
