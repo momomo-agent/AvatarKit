@@ -88,18 +88,18 @@ enum TrackingDataBuilder {
             let q = ptr.load(fromByteOffset: 0x20, as: simd_quatf.self)
             let cs = ptr.load(fromByteOffset: 0x30, as: UInt8.self)
             
-            print("[C-BUF] translation=(\(String(format: "%.4f,%.4f,%.4f,%.4f", t.x, t.y, t.z, t.w)))")
-            print("[C-BUF] quaternion=(\(String(format: "%.4f,%.4f,%.4f,%.4f", q.imag.x, q.imag.y, q.imag.z, q.real)))")
-            print("[C-BUF] cameraSpace=\(cs)")
+//            print("[C-BUF] translation=(\(String(format: "%.4f,%.4f,%.4f,%.4f", t.x, t.y, t.z, t.w)))")
+//            print("[C-BUF] quaternion=(\(String(format: "%.4f,%.4f,%.4f,%.4f", q.imag.x, q.imag.y, q.imag.z, q.real)))")
+//            print("[C-BUF] cameraSpace=\(cs)")
             
             // Read first 5 blendshapes from smooth slot
             var bs: [Float] = []
             for i in 0..<5 {
                 bs.append(ptr.load(fromByteOffset: 0x34 + i * 4, as: Float.self))
             }
-            print("[C-BUF] blendshapes[0..4]=\(bs.map { String(format: "%.3f", $0) })")
-            print("[C-BUF] coordSpace=\(tracking.coordinateSpace)")
-            print("[C-BUF] ---")
+//            print("[C-BUF] blendshapes[0..4]=\(bs.map { String(format: "%.3f", $0) })")
+//            print("[C-BUF] coordSpace=\(tracking.coordinateSpace)")
+//            print("[C-BUF] ---")
         }
     }
     

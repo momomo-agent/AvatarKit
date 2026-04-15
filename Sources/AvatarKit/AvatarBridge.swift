@@ -155,40 +155,40 @@ public final class AvatarBridge {
         if debugApplyCount == 1, let pov = scenePointOfView {
             let wt = (pov as AnyObject).value(forKeyPath: "worldTransform") as? SCNMatrix4
             if let wt {
-                print("[POV] worldTransform:")
-                print("[POV]   col0=(\(wt.m11), \(wt.m21), \(wt.m31), \(wt.m41))")
-                print("[POV]   col1=(\(wt.m12), \(wt.m22), \(wt.m32), \(wt.m42))")
-                print("[POV]   col2=(\(wt.m13), \(wt.m23), \(wt.m33), \(wt.m43))")
-                print("[POV]   col3=(\(wt.m14), \(wt.m24), \(wt.m34), \(wt.m44))")
+//                print("[POV] worldTransform:")
+//                print("[POV]   col0=(\(wt.m11), \(wt.m21), \(wt.m31), \(wt.m41))")
+//                print("[POV]   col1=(\(wt.m12), \(wt.m22), \(wt.m32), \(wt.m42))")
+//                print("[POV]   col2=(\(wt.m13), \(wt.m23), \(wt.m33), \(wt.m43))")
+//                print("[POV]   col3=(\(wt.m14), \(wt.m24), \(wt.m34), \(wt.m44))")
             }
             let t = (pov as AnyObject).value(forKeyPath: "transform") as? SCNMatrix4
             if let t {
-                print("[POV] transform:")
-                print("[POV]   col0=(\(t.m11), \(t.m21), \(t.m31), \(t.m41))")
-                print("[POV]   col1=(\(t.m12), \(t.m22), \(t.m32), \(t.m42))")
-                print("[POV]   col2=(\(t.m13), \(t.m23), \(t.m33), \(t.m43))")
-                print("[POV]   col3=(\(t.m14), \(t.m24), \(t.m34), \(t.m44))")
+//                print("[POV] transform:")
+//                print("[POV]   col0=(\(t.m11), \(t.m21), \(t.m31), \(t.m41))")
+//                print("[POV]   col1=(\(t.m12), \(t.m22), \(t.m32), \(t.m42))")
+//                print("[POV]   col2=(\(t.m13), \(t.m23), \(t.m33), \(t.m43))")
+//                print("[POV]   col3=(\(t.m14), \(t.m24), \(t.m34), \(t.m44))")
             }
-            print("[POV] scenePointOfView class: \(type(of: pov))")
+//            print("[POV] scenePointOfView class: \(type(of: pov))")
         }
         // === DEBUG POINT D-pre: Before Apple calls ===
         if shouldLog {
             if let rootPos = getRootJointPosition() {
-                print("[D-PRE] rootJointPos=(\(String(format: "%.4f,%.4f,%.4f", rootPos.x, rootPos.y, rootPos.z)))")
+//                print("[D-PRE] rootJointPos=(\(String(format: "%.4f,%.4f,%.4f", rootPos.x, rootPos.y, rootPos.z)))")
             }
             if let neckQ = getNeckOrientation() {
-                print("[D-PRE] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
+//                print("[D-PRE] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
             }
             if let wt = getCameraWorldTransform() {
                 let camQ = simd_quatf(wt)
-                print("[D-PRE] camWT.pos=(\(String(format: "%.3f,%.3f,%.3f", wt.columns.3.x, wt.columns.3.y, wt.columns.3.z)))")
-                print("[D-PRE] camWT.quat=(\(String(format: "%.4f,%.4f,%.4f,%.4f", camQ.imag.x, camQ.imag.y, camQ.imag.z, camQ.real)))")
+//                print("[D-PRE] camWT.pos=(\(String(format: "%.3f,%.3f,%.3f", wt.columns.3.x, wt.columns.3.y, wt.columns.3.z)))")
+//                print("[D-PRE] camWT.quat=(\(String(format: "%.4f,%.4f,%.4f,%.4f", camQ.imag.x, camQ.imag.y, camQ.imag.z, camQ.real)))")
                 // Print full matrix for rotation analysis
-                print("[D-PRE] camWT.col0=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.0.x, wt.columns.0.y, wt.columns.0.z)))")
-                print("[D-PRE] camWT.col1=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.1.x, wt.columns.1.y, wt.columns.1.z)))")
-                print("[D-PRE] camWT.col2=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.2.x, wt.columns.2.y, wt.columns.2.z)))")
+//                print("[D-PRE] camWT.col0=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.0.x, wt.columns.0.y, wt.columns.0.z)))")
+//                print("[D-PRE] camWT.col1=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.1.x, wt.columns.1.y, wt.columns.1.z)))")
+//                print("[D-PRE] camWT.col2=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.2.x, wt.columns.2.y, wt.columns.2.z)))")
             }
-            print("[D-PRE] pov=\(cameraNode == nil ? "nil" : "exists") coordSpace=\(tracking.coordinateSpace)")
+//            print("[D-PRE] pov=\(cameraNode == nil ? "nil" : "exists") coordSpace=\(tracking.coordinateSpace)")
         }
         
         // Primary: direct struct pointer calls (avoids NSData overhead)
@@ -240,12 +240,12 @@ public final class AvatarBridge {
         // === DEBUG POINT D-post: After Apple calls ===
         if shouldLog {
             if let rootPos = getRootJointPosition() {
-                print("[D-POST] rootJointPos=(\(String(format: "%.4f,%.4f,%.4f", rootPos.x, rootPos.y, rootPos.z)))")
+//                print("[D-POST] rootJointPos=(\(String(format: "%.4f,%.4f,%.4f", rootPos.x, rootPos.y, rootPos.z)))")
             }
             if let neckQ = getNeckOrientation() {
-                print("[D-POST] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
+//                print("[D-POST] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
             }
-            print("[D-POST] ---")
+//            print("[D-POST] ---")
         }
         
         // Apple buffer comparison (every 60 frames)
@@ -453,7 +453,7 @@ public final class AvatarBridge {
     /// Compare our tracking buffer with Apple's AVTFaceTrackingInfo output.
     public func compareWithApple(frame: ARFrame, constrainHeadPose: Bool, ourTracking: AvatarFaceTracking) {
         guard let cls = NSClassFromString("AVTFaceTrackingInfo") as? NSObject.Type else {
-            print("[CMP] AVTFaceTrackingInfo not found")
+//            print("[CMP] AVTFaceTrackingInfo not found")
             return
         }
         
@@ -462,7 +462,7 @@ public final class AvatarBridge {
         
         // Get the class method IMP directly via objc runtime
         guard let method = class_getClassMethod(cls, sel) else {
-            print("[CMP] can't get class method")
+//            print("[CMP] can't get class method")
             return
         }
         let funcImp = method_getImplementation(method)
@@ -470,14 +470,14 @@ public final class AvatarBridge {
         let createFunc = unsafeBitCast(funcImp, to: CreateFunc.self)
         
         guard let trackingInfo = createFunc(cls, sel, frame, 1, 1, constrainHeadPose) else {
-            print("[CMP] Apple returned nil")
+//            print("[CMP] Apple returned nil")
             return
         }
         
         // trackingData returns a pointer to the internal struct (ivar at offset 16)
         let tdSel = NSSelectorFromString("trackingData")
         guard let tdMethod = class_getInstanceMethod(type(of: trackingInfo) as? AnyClass, tdSel) else {
-            print("[CMP] can't get trackingData method")
+//            print("[CMP] can't get trackingData method")
             return
         }
         let tdImp = method_getImplementation(tdMethod)
@@ -493,18 +493,18 @@ public final class AvatarBridge {
             if (i + 1) % 16 == 0 { hexDump += "\n" }
             else if (i + 1) % 4 == 0 { hexDump += " " }
         }
-        print("[CMP-\(mode)] apple raw hex (64 bytes):")
+//        print("[CMP-\(mode)] apple raw hex (64 bytes):")
         for line in hexDump.split(separator: "\n") {
-            print("[CMP-\(mode)]   \(line)")
+//            print("[CMP-\(mode)]   \(line)")
         }
         
         // Also dump the face anchor transform from the frame for reference
         if let faceAnchor = frame.anchors.compactMap({ $0 as? ARFaceAnchor }).first {
             let ft = faceAnchor.transform
-            print("[CMP-\(mode)] frame face.t=(\(String(format: "%.4f,%.4f,%.4f", ft.columns.3.x, ft.columns.3.y, ft.columns.3.z)))")
-            print("[CMP-\(mode)] frame face.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", simd_quatf(ft).imag.x, simd_quatf(ft).imag.y, simd_quatf(ft).imag.z, simd_quatf(ft).real)))")
+//            print("[CMP-\(mode)] frame face.t=(\(String(format: "%.4f,%.4f,%.4f", ft.columns.3.x, ft.columns.3.y, ft.columns.3.z)))")
+//            print("[CMP-\(mode)] frame face.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", simd_quatf(ft).imag.x, simd_quatf(ft).imag.y, simd_quatf(ft).imag.z, simd_quatf(ft).real)))")
             let ct = frame.camera.transform
-            print("[CMP-\(mode)] frame cam.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", simd_quatf(ct).imag.x, simd_quatf(ct).imag.y, simd_quatf(ct).imag.z, simd_quatf(ct).real)))")
+//            print("[CMP-\(mode)] frame cam.q=(\(String(format: "%.4f,%.4f,%.4f,%.4f", simd_quatf(ct).imag.x, simd_quatf(ct).imag.y, simd_quatf(ct).imag.z, simd_quatf(ct).real)))")
         }
         
         // Read Apple's buffer fields
@@ -534,22 +534,22 @@ public final class AvatarBridge {
             let qDot = abs(simd_dot(appleQuat, ourQuat) / (simd_length(appleQuat) * simd_length(ourQuat)))
             
             let mode = constrainHeadPose ? "WORLD" : "AR"
-            print("[CMP-\(mode)] apple.t=(\(String(format: "%.4f,%.4f,%.4f,%.4f", appleTranslation.x, appleTranslation.y, appleTranslation.z, appleTranslation.w)))")
-            print("[CMP-\(mode)]   our.t=(\(String(format: "%.4f,%.4f,%.4f,%.4f", ourTranslation.x, ourTranslation.y, ourTranslation.z, ourTranslation.w)))")
-            print("[CMP-\(mode)]   t_diff=\(String(format: "%.6f", tDiff))")
-            print("[CMP-\(mode)] apple.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", appleQuat.x, appleQuat.y, appleQuat.z, appleQuat.w)))")
-            print("[CMP-\(mode)]   our.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", ourQuat.x, ourQuat.y, ourQuat.z, ourQuat.w)))")
-            print("[CMP-\(mode)]   q_dot=\(String(format: "%.8f", qDot)) (1.0=identical)")
-            print("[CMP-\(mode)] apple.cs=\(appleCameraSpace) our.cs=\(ourCameraSpace)")
+//            print("[CMP-\(mode)] apple.t=(\(String(format: "%.4f,%.4f,%.4f,%.4f", appleTranslation.x, appleTranslation.y, appleTranslation.z, appleTranslation.w)))")
+//            print("[CMP-\(mode)]   our.t=(\(String(format: "%.4f,%.4f,%.4f,%.4f", ourTranslation.x, ourTranslation.y, ourTranslation.z, ourTranslation.w)))")
+//            print("[CMP-\(mode)]   t_diff=\(String(format: "%.6f", tDiff))")
+//            print("[CMP-\(mode)] apple.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", appleQuat.x, appleQuat.y, appleQuat.z, appleQuat.w)))")
+//            print("[CMP-\(mode)]   our.q=(\(String(format: "%.6f,%.6f,%.6f,%.6f", ourQuat.x, ourQuat.y, ourQuat.z, ourQuat.w)))")
+//            print("[CMP-\(mode)]   q_dot=\(String(format: "%.8f", qDot)) (1.0=identical)")
+//            print("[CMP-\(mode)] apple.cs=\(appleCameraSpace) our.cs=\(ourCameraSpace)")
             
             // Also compare first 5 blendshapes
             let appleBS0 = applePtr.load(fromByteOffset: 0x34, as: Float.self)
             let appleBS1 = applePtr.load(fromByteOffset: 0x38, as: Float.self)
             let ourBS0 = ourPtr.load(fromByteOffset: 0x34, as: Float.self)
             let ourBS1 = ourPtr.load(fromByteOffset: 0x38, as: Float.self)
-            print("[CMP-\(mode)] apple.bs[0,1]=(\(String(format: "%.4f,%.4f", appleBS0, appleBS1)))")
-            print("[CMP-\(mode)]   our.bs[0,1]=(\(String(format: "%.4f,%.4f", ourBS0, ourBS1)))")
-            print("[CMP-\(mode)] ---")
+//            print("[CMP-\(mode)] apple.bs[0,1]=(\(String(format: "%.4f,%.4f", appleBS0, appleBS1)))")
+//            print("[CMP-\(mode)]   our.bs[0,1]=(\(String(format: "%.4f,%.4f", ourBS0, ourBS1)))")
+//            print("[CMP-\(mode)] ---")
         }
     }
 }
