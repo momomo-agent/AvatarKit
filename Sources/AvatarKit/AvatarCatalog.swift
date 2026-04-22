@@ -32,14 +32,10 @@ public final class AvatarCatalog: @unchecked Sendable {
     }
     
     /// Load the head diffuse texture for an Animoji character.
-    /// Returns nil if the texture is not found.
     public static func headTexture(for characterID: String) -> UIImage? {
-        // AvatarKit.framework/animoji/{name}/{name}_head_DIFFUSE.heic
-        let bundle = Bundle(path: "/System/Library/PrivateFrameworks/AvatarKit.framework")
-        let path = bundle?.path(forResource: "\(characterID)_head_DIFFUSE",
-                                ofType: "heic",
-                                inDirectory: "animoji/\(characterID)")
-        guard let path else { return nil }
+        guard let cls = NSClassFromString("AVTAnimoji") else { return nil }
+        let bundle = Bundle(for: cls)
+        let path = bundle.bundlePath + "/animoji/\(characterID)/\(characterID)_head_DIFFUSE.heic"
         return UIImage(contentsOfFile: path)
     }
 }
