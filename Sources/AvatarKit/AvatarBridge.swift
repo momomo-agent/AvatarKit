@@ -76,6 +76,16 @@ public final class AvatarBridge {
             unsafeBitCast(imp, to: F.self)(view, sel, false)
         }
         
+        // Pause continuous rendering until avatar is loaded.
+        // VFX crashes with NSRangeException if the render loop runs
+        // before the avatar scene graph is fully built.
+        let pauseSel = NSSelectorFromString("setRendersContinuously:")
+        if view.responds(to: pauseSel),
+           let imp = class_getMethodImplementation(type(of: view), pauseSel) {
+            typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(imp, to: F.self)(view, pauseSel, false)
+        }
+        
         self.avtView = view
     }
     
@@ -106,6 +116,17 @@ public final class AvatarBridge {
             let setAvatarSel = NSSelectorFromString("setAvatar:")
             if view.responds(to: setAvatarSel) {
                 view.perform(setAvatarSel, with: obj)
+            }
+            
+            // Resume continuous rendering now that avatar scene graph is built.
+            // Delay by one frame to let VFX finish internal setup.
+            DispatchQueue.main.async {
+                let resumeSel = NSSelectorFromString("setRendersContinuously:")
+                if view.responds(to: resumeSel),
+                   let imp = class_getMethodImplementation(type(of: view), resumeSel) {
+                    typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
+                    unsafeBitCast(imp, to: F.self)(view, resumeSel, true)
+                }
             }
         }
         
