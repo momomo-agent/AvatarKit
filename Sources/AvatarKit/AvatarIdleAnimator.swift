@@ -94,8 +94,18 @@ public class AvatarIdleAnimator {
     private var headVelocity = SIMD3<Float>.zero // angular velocity
     private var nextHeadTargetTime: TimeInterval = 0
     
-    // --- Head translation (derived from rotation via neck pivot) ---
-    // No independent translation state needed — it's computed from rotation
+    // --- Body sway (organic whole-body drift, independent of head rotation) ---
+    private var bodySwayPhase: SIMD3<Float> = SIMD3(
+        Float.random(in: 0...(.pi * 2)),
+        Float.random(in: 0...(.pi * 2)),
+        Float.random(in: 0...(.pi * 2))
+    )
+    // Second harmonic for organic feel (not pure sine)
+    private var bodySwayPhase2: SIMD3<Float> = SIMD3(
+        Float.random(in: 0...(.pi * 2)),
+        Float.random(in: 0...(.pi * 2)),
+        Float.random(in: 0...(.pi * 2))
+    )
     
     // --- Saccade ---
     private var nextSaccadeTime: TimeInterval = 0
@@ -597,12 +607,35 @@ public class AvatarIdleAnimator {
         let rotatedPivot = q.act(-neckPivot)
         var derivedTranslation = neckPivot + rotatedPivot
         
-        // Add breathing vertical bob (this IS independent of rotation)
+        // ═══════════════════════════════════════════
+        // Body Sway: organic whole-body drift (like a person sitting/standing)
+        // This is INDEPENDENT of head rotation — it's the torso moving.
+        // Two sine waves per axis at different frequencies = pseudo-Perlin.
+        // Disney: living things are never perfectly still.
+        // ═══════════════════════════════════════════
+        let swaySpeed: Float = isSpeaking ? 0.6 : 0.3
+        bodySwayPhase += SIMD3(dt * swaySpeed * 0.7, dt * swaySpeed * 0.5, dt * swaySpeed * 0.9)
+        bodySwayPhase2 += SIMD3(dt * swaySpeed * 1.3, dt * swaySpeed * 1.1, dt * swaySpeed * 0.6)
+        
+        let swayAmp: Float = isSpeaking ? 0.012 : 0.008
+        let sway1 = SIMD3<Float>(
+            sin(bodySwayPhase.x) * swayAmp,          // left-right
+            sin(bodySwayPhase.y) * swayAmp * 0.5,    // up-down (less)
+            sin(bodySwayPhase.z) * swayAmp * 0.7     // forward-back
+        )
+        let sway2 = SIMD3<Float>(
+            sin(bodySwayPhase2.x) * swayAmp * 0.4,
+            sin(bodySwayPhase2.y) * swayAmp * 0.3,
+            sin(bodySwayPhase2.z) * swayAmp * 0.5
+        )
+        derivedTranslation += (sway1 + sway2) * intensity
+        
+        // Add breathing vertical bob (independent of rotation)
         if breathingEnabled {
             let breathBob: Float = breathPhase < 0.4
                 ? cubicEaseOut(breathPhase / 0.4)
                 : 1.0 - cubicEaseIn((breathPhase - 0.4) / 0.6)
-            derivedTranslation.y += breathBob * 0.001 * intensity
+            derivedTranslation.y += breathBob * 0.002 * intensity
         }
         
         onFrame?(bs, q, derivedTranslation)
