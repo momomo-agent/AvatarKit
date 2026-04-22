@@ -221,10 +221,9 @@ public final class AvatarBridge {
                     let worldQ = camQ * q
                     setNeckOrientation(worldQ)
                     // Convert camera-space translation to world space
-                    // Scale factors from binary: (50.0, 20.0, 100.0)
+                    // headTranslation is already scaled by AvatarFaceTracking+ARKit
                     let t = tracking.headTranslation
-                    let scaledT = SIMD3<Float>(t.x * 50.0, t.y * 20.0, t.z * 100.0)
-                    let worldT = camQ.act(scaledT)
+                    let worldT = camQ.act(t)
                     setRootJointPosition(worldT)
                 }
                 // No frame → skip head pose entirely (don't fall through to _applyHeadPose
@@ -240,16 +239,11 @@ public final class AvatarBridge {
                 // Apple's _applyHeadPose in world mode (cameraSpace=0) does NOT apply
                 // translation — it only sets neck orientation. We must apply translation
                 // manually for idle animation spatial movement to work.
-                // Scale factors from binary __const +0x620: (50.0, 20.0, 100.0)
-                // These convert ARKit meters to avatar scene units.
+                // Note: headTranslation is already in avatar scene units (pre-scaled
+                // by AvatarFaceTracking+ARKit or the idle animator).
                 let t = tracking.headTranslation
                 if t.x != 0 || t.y != 0 || t.z != 0 {
-                    let scaled = SIMD3<Float>(
-                        t.x * 50.0,
-                        t.y * 20.0,
-                        t.z * 100.0
-                    )
-                    setRootJointPosition(scaled)
+                    setRootJointPosition(t)
                 }
             }
         }
