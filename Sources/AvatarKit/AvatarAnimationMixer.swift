@@ -1,8 +1,5 @@
 import Foundation
 import simd
-import os.log
-
-private let mixLog = OSLog(subsystem: "com.momomo.avatarkit", category: "mixer")
 
 // MARK: - Animation Mixer
 
@@ -74,8 +71,6 @@ public class AvatarAnimationMixer {
     
     // MARK: - Mixing
     
-    private var mixDebugCount = 0
-
     private func mix() {
         var merged: [String: Float] = [:]
 
@@ -86,13 +81,6 @@ public class AvatarAnimationMixer {
         for (key, value) in idleBlendshapes {
             if lipSyncActive && Self.mouthBlendshapes.contains(key) { continue }
             merged[key] = value
-        }
-
-        mixDebugCount += 1
-        if mixDebugCount % 60 == 0 {
-            let keys = merged.keys.sorted().joined(separator: ",")
-            let vals = merged.keys.sorted().map { String(format: "%.3f", merged[$0]!) }.joined(separator: ",")
-            os_log(.default, log: mixLog, "[MIX] keys=%{public}@ vals=%{public}@", keys, vals)
         }
         
         // Layer 1.5: Performative pose (additive on idle, before lip sync)

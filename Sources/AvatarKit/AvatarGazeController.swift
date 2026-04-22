@@ -230,12 +230,11 @@ public class AvatarGazeController {
         saccadeEnd = target
         saccadeStartTime = now
         
-        // Duration based on amplitude (main sequence relationship)
-        // Small saccades (~5°): ~30ms, large (~30°): ~80ms
+        // Duration: slower than real saccades to avoid twitchy appearance on Animoji
         let amplitude = simd_length(target - currentEyePosition)
-        let degrees = amplitude * 30.0 // rough: 1.0 normalized ≈ 30°
-        saccadeDuration = TimeInterval(0.02 + degrees * 0.002) // 20-80ms
-        saccadeDuration = max(0.02, min(saccadeDuration, 0.1))
+        let degrees = amplitude * 30.0
+        saccadeDuration = TimeInterval(0.1 + degrees * 0.005) // 100-250ms
+        saccadeDuration = max(0.1, min(saccadeDuration, 0.3))
         
         saccadeActive = true
     }
@@ -276,22 +275,22 @@ public class AvatarGazeController {
         let x = pos.x * intensity
         let y = pos.y * intensity
         
-        // Horizontal: positive = look right
+        // Horizontal: positive = look right (reduced scale for smoother appearance)
         if x > 0 {
-            bs["eyeLookOutRight"] = x * 0.4
-            bs["eyeLookInLeft"] = x * 0.4
+            bs["eyeLookOutRight"] = x * 0.2
+            bs["eyeLookInLeft"] = x * 0.2
         } else {
-            bs["eyeLookOutLeft"] = -x * 0.4
-            bs["eyeLookInRight"] = -x * 0.4
+            bs["eyeLookOutLeft"] = -x * 0.2
+            bs["eyeLookInRight"] = -x * 0.2
         }
-        
+
         // Vertical: positive = look up
         if y > 0 {
-            bs["eyeLookUpLeft"] = y * 0.3
-            bs["eyeLookUpRight"] = y * 0.3
+            bs["eyeLookUpLeft"] = y * 0.15
+            bs["eyeLookUpRight"] = y * 0.15
         } else {
-            bs["eyeLookDownLeft"] = -y * 0.3
-            bs["eyeLookDownRight"] = -y * 0.3
+            bs["eyeLookDownLeft"] = -y * 0.15
+            bs["eyeLookDownRight"] = -y * 0.15
         }
         
         return bs

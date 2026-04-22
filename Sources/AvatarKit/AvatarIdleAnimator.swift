@@ -850,13 +850,13 @@ public class AvatarIdleAnimator {
     private func updateSaccade(now: TimeInterval, dt: Float) {
         if now >= nextSaccadeTime {
             saccadeTarget = SIMD2(
-                Float.random(in: -0.6...0.6),
-                Float.random(in: -0.3...0.3)
+                Float.random(in: -0.3...0.3),
+                Float.random(in: -0.15...0.15)
             )
             scheduleNextSaccade(from: now)
         }
-        // Saccades are ballistic (very fast), then hold
-        saccadeCurrent += (saccadeTarget - saccadeCurrent) * min(dt * 15.0, 1.0)
+        // Saccades: smooth follow instead of ballistic jump
+        saccadeCurrent += (saccadeTarget - saccadeCurrent) * min(dt * 5.0, 1.0)
     }
     
     private func scheduleNextSaccade(from time: TimeInterval) {
@@ -915,17 +915,17 @@ public class AvatarIdleAnimator {
         case 0:
             let side = Bool.random()
             microExpressionBS = [
-                side ? "mouthSmileLeft" : "mouthSmileRight": 0.15,
-                side ? "cheekSquintLeft" : "cheekSquintRight": 0.08,
+                side ? "mouthSmileLeft" : "mouthSmileRight": 0.08,
+                side ? "cheekSquintLeft" : "cheekSquintRight": 0.04,
             ]
         case 1:
             microExpressionBS = [
-                "browOuterUpLeft": 0.2, "browOuterUpRight": 0.2,
-                "browInnerUp": 0.1,
+                "browOuterUpLeft": 0.1, "browOuterUpRight": 0.1,
+                "browInnerUp": 0.05,
             ]
         case 2:
             microExpressionBS = [
-                "noseSneerLeft": 0.1, "noseSneerRight": 0.1,
+                "noseSneerLeft": 0.04, "noseSneerRight": 0.04,
             ]
         case 3:
             microExpressionBS = [
@@ -935,7 +935,7 @@ public class AvatarIdleAnimator {
         case 4:
             let side = Bool.random()
             microExpressionBS = [
-                side ? "browOuterUpLeft" : "browOuterUpRight": 0.2,
+                side ? "browOuterUpLeft" : "browOuterUpRight": 0.1,
             ]
         case 5:
             microExpressionBS = [
