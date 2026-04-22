@@ -212,6 +212,10 @@ public class AvatarLipSync {
     /// Merge these into your AvatarFaceTracking before calling applyTracking().
     public var onFrame: (([String: Float]) -> Void)?
     
+    /// Called every audio tap with the current RMS amplitude (0-1).
+    /// Use this to drive head motion energy in the idle animator.
+    public var onAmplitude: ((Float) -> Void)?
+    
     // MARK: - State
     
     private var displayLink: CADisplayLink?
@@ -428,6 +432,7 @@ public class AvatarLipSync {
         var rms: Float = 0
         vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(count))
         audioAmplitude = rms
+        onAmplitude?(rms)
         
         // Skip FFT if too quiet (silence threshold)
         guard rms > 0.01 else {

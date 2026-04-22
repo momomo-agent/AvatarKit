@@ -116,6 +116,11 @@ public class AvatarBehaviorEngine {
         mixer.lipSync = lipSync
         mixer.idleAnimator = idleAnimator
         
+        // Lip sync amplitude → idle animator energy (for head motion)
+        lipSync.onAmplitude = { [weak self] rms in
+            self?.idleAnimator.audioEnergy = rms
+        }
+        
         // Gaze output → merge into mixer
         gazeController.onFrame = { [weak self] eyeBS, headDelta in
             self?.gazeEyeBlendshapes = eyeBS
