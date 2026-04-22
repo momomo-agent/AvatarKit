@@ -253,9 +253,11 @@ public class AvatarIdleAnimator {
             bs["jawOpen"] = breathAmount * 0.02 * depth
             
             // Body Y driven by breathing (this is the "hips" in a bust)
-            bodyY = breathAmount * 0.006 * depth
+            // Face tracking scale: Y × 20, so 0.1 here ≈ 5mm real movement
+            bodyY = breathAmount * 0.3 * depth
             // Body Z: inhale = slight lean back, exhale = lean forward
-            bodyZ = -breathAmount * 0.004 * depth
+            // Face tracking scale: Z × 100, so 0.5 here ≈ 5mm real movement
+            bodyZ = -breathAmount * 0.5 * depth
             
             // Head follows body Y and Z with DRAG (overlap principle)
             // Spring-damper with lower stiffness = delayed follow
@@ -651,9 +653,8 @@ public class AvatarIdleAnimator {
               * simd_quatf(angle: headPitch * rad, axis: SIMD3(1, 0, 0))
               * simd_quatf(angle: headRoll * rad, axis: SIMD3(0, 0, 1))
         
-        // Neck pivot: very subtle — this is a bust/portrait, not a full body.
-        // Just enough to ground the rotation, not enough to drift.
-        let neckPivot = SIMD3<Float>(0, -0.02, 0)
+        // Neck pivot in avatar scene units (face tracking uses scale 50/20/100)
+        let neckPivot = SIMD3<Float>(0, -0.5, 0)
         
         // Rotation around pivot: T = pivot + R * (-pivot)
         // This gives the displacement of the head center due to rotation
@@ -671,16 +672,17 @@ public class AvatarIdleAnimator {
         bodySwayPhase += SIMD3(dt * swaySpeed * 0.7, dt * swaySpeed * 0.5, dt * swaySpeed * 0.9)
         bodySwayPhase2 += SIMD3(dt * swaySpeed * 1.3, dt * swaySpeed * 1.1, dt * swaySpeed * 0.6)
         
-        let swayAmp: Float = isSpeaking ? 0.006 : 0.004
+        // Sway in avatar scene units (X scale=50, Z scale=100)
+        let swayAmp: Float = isSpeaking ? 0.3 : 0.2
         let sway1 = SIMD3<Float>(
             sin(bodySwayPhase.x) * swayAmp,
-            0,  // Y is driven by breathing, not sway
-            sin(bodySwayPhase.z) * swayAmp * 1.2   // Z bigger for visible depth
+            0,
+            sin(bodySwayPhase.z) * swayAmp * 2.0   // Z needs more (scale 100)
         )
         let sway2 = SIMD3<Float>(
             sin(bodySwayPhase2.x) * swayAmp * 0.4,
             0,
-            sin(bodySwayPhase2.z) * swayAmp * 0.8
+            sin(bodySwayPhase2.z) * swayAmp * 1.0
         )
         
         // Final translation: rotation-derived + body Y/Z (with drag) + sway
