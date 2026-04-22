@@ -8,13 +8,6 @@ let package = Package(
         .library(name: "AvatarKit", targets: ["AvatarKit"]),
     ],
     targets: [
-        .target(
-            name: "ObjCBridge",
-            publicHeadersPath: "include"
-        ),
-        .target(
-            name: "AvatarKit",
-            dependencies: ["ObjCBridge"]
-        ),
+        .target(name: "AvatarKit"),
     ]
 )

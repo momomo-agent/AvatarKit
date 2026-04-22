@@ -3,7 +3,6 @@ import simd
 import UIKit
 import ObjectiveC
 import SceneKit
-import ObjCBridge
 import ARKit
 
 // MARK: - Avatar Bridge
@@ -59,80 +58,25 @@ public final class AvatarBridge {
     
     public init() {
         Self.loadFrameworks()
-        // AVTView is created lazily in load() to avoid VFX crash.
-        // VFX starts its render loop immediately on AVTView.init(),
-        // and crashes with NSRangeException if the scene graph is empty.
+        createAVTView()
     }
     
     // MARK: - AVTView Setup
     
-    /// Whether the initial swizzle has been applied.
-    private static var didInstallRenderGuard = false
-    /// Global flag: allow VFX rendering (set after setAvatar:).
-    static var renderingAllowed = false
-    /// Original IMP of -[AVTView _renderer:willRenderWorld:atTime:].
-    private static var originalWillRender: IMP?
-    
-    /// Install a render guard that prevents VFX from rendering until
-    /// an avatar is loaded. Without this, VFX crashes with NSRangeException
-    /// when accessing empty scene graph arrays on the render thread.
-    private static func installRenderGuard() {
-        guard !didInstallRenderGuard else { return }
-        didInstallRenderGuard = true
-        
-        guard let cls = NSClassFromString("AVTView") else { return }
-        
-        // Swizzle _renderer:willRenderWorld:atTime: to no-op until avatar is set
-        let sel = NSSelectorFromString("_renderer:willRenderWorld:atTime:")
-        guard let method = class_getInstanceMethod(cls, sel) else { return }
-        originalWillRender = method_getImplementation(method)
-        
-        let block: @convention(block) (AnyObject, AnyObject, AnyObject, Double) -> Void = { _, _, _, _ in
-            // No-op: skip rendering until avatar is loaded
-        }
-        method_setImplementation(method, imp_implementationWithBlock(block))
-    }
-    
-    /// Restore the original render method after avatar is loaded.
-    private static func removeRenderGuard() {
-        guard let cls = NSClassFromString("AVTView"),
-              let orig = originalWillRender else { return }
-        
-        let sel = NSSelectorFromString("_renderer:willRenderWorld:atTime:")
-        guard let method = class_getInstanceMethod(cls, sel) else { return }
-        method_setImplementation(method, orig)
-        renderingAllowed = true
-    }
-    
-    private func createAVTView(withAvatar avatar: AnyObject) {
+    private func createAVTView() {
         guard let avtViewCls = NSClassFromString("AVTView") as? UIView.Type else { return }
-        
-        // Install render guard BEFORE creating AVTView
-        Self.installRenderGuard()
         
         let view = avtViewCls.init(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         
-        // Set avatar immediately
-        let setAvatarSel = NSSelectorFromString("setAvatar:")
-        if view.responds(to: setAvatarSel) {
-            view.perform(setAvatarSel, with: avatar)
-        }
-        
         // Disable face tracking — we drive expressions manually
-        let ftSel = NSSelectorFromString("setEnableFaceTracking:")
-        if view.responds(to: ftSel),
-           let imp = class_getMethodImplementation(type(of: view), ftSel) {
+        let sel = NSSelectorFromString("setEnableFaceTracking:")
+        if view.responds(to: sel),
+           let imp = class_getMethodImplementation(type(of: view), sel) {
             typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
-            unsafeBitCast(imp, to: F.self)(view, ftSel, false)
+            unsafeBitCast(imp, to: F.self)(view, sel, false)
         }
         
         self.avtView = view
-        
-        // Remove render guard after avatar is set and scene graph is populated.
-        // Delay slightly to ensure VFX internal setup is complete.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            Self.removeRenderGuard()
-        }
     }
     
     // MARK: - Loading
@@ -157,14 +101,8 @@ public final class AvatarBridge {
         self.animoji = obj
         self.characterID = characterID
         
-        // Create AVTView lazily (first load) or update existing
-        if avtView == nil {
-            // First load: create AVTView with avatar already set
-            // This prevents VFX crash — the scene graph is populated
-            // before the render loop starts.
-            createAVTView(withAvatar: obj)
-        } else if let view = avtView {
-            // Subsequent loads: just update the avatar
+        // Set avatar on AVTView
+        if let view = avtView {
             let setAvatarSel = NSSelectorFromString("setAvatar:")
             if view.responds(to: setAvatarSel) {
                 view.perform(setAvatarSel, with: obj)
@@ -173,7 +111,6 @@ public final class AvatarBridge {
         
         return true
     }
-
     
     // MARK: - Tracking
     
