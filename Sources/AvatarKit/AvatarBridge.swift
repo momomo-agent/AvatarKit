@@ -282,13 +282,20 @@ public final class AvatarBridge {
     public func applyTrackingDirect(_ tracking: AvatarFaceTracking) {
         guard let animoji else { return }
         let obj = animoji as AnyObject
-        
-        let data = TrackingDataBuilder.build(from: tracking)
-        
+
+        var data = TrackingDataBuilder.build(from: tracking)
+
+        // Zero out quaternion in buffer so _applyBlendShapes doesn't also
+        // apply head pose (we set it manually via setNeckOrientation below).
+        // This prevents ghosting from two competing head orientations.
+        data.withUnsafeMutableBytes { raw in
+            guard let ptr = raw.baseAddress else { return }
+            var identity = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
+            memcpy(ptr + 0x20, &identity, 16)
+        }
+
         data.withUnsafeBytes { raw in
             guard let ptr = raw.baseAddress else { return }
-            
-            // Apply blendshapes only
             let blendSel = NSSelectorFromString("_applyBlendShapesWithTrackingData:")
             if obj.responds(to: blendSel),
                let imp = class_getMethodImplementation(type(of: obj), blendSel) {
