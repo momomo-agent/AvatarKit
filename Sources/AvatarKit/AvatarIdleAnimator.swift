@@ -1033,7 +1033,7 @@ public class AvatarIdleAnimator {
             "eyeWideLeft": 0.5, "eyeWideRight": 0.5,
             "browOuterUpLeft": 0.4, "browOuterUpRight": 0.4,
             "browInnerUp": 0.35,
-            "jawOpen": 0.2,
+            "jawOpen": 0.06,
         ]
         case .concerned: moodBlendshapes = [
             "browInnerUp": 0.4,
@@ -1171,11 +1171,11 @@ public class AvatarIdleAnimator {
             let browSide = dir > 0 ? "browOuterUpRight" : "browOuterUpLeft"
             bs[browSide] = (bs[browSide] ?? 0) + max(0, envelope) * 0.15
             
-        default: // Jaw stretch
-            bs["jawOpen"] = (bs["jawOpen"] ?? 0) + max(0, envelope) * 0.25
-            bs["mouthStretchLeft"] = (bs["mouthStretchLeft"] ?? 0) + max(0, envelope) * 0.15
-            bs["mouthStretchRight"] = (bs["mouthStretchRight"] ?? 0) + max(0, envelope) * 0.15
-            headPitch += envelope * 4.0
+        default: // Jaw stretch — keep subtle to avoid twitchy appearance
+            bs["jawOpen"] = (bs["jawOpen"] ?? 0) + max(0, envelope) * 0.08
+            bs["mouthStretchLeft"] = (bs["mouthStretchLeft"] ?? 0) + max(0, envelope) * 0.05
+            bs["mouthStretchRight"] = (bs["mouthStretchRight"] ?? 0) + max(0, envelope) * 0.05
+            headPitch += envelope * 2.0
         }
     }
     
