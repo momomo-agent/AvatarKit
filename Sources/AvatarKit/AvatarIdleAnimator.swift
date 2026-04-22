@@ -166,7 +166,7 @@ public class AvatarIdleAnimator {
         scheduleNextSaccade(from: 0)
         nextMicroExpressionTime = Double.random(in: 3...8)
         nextSwallowTime = Double.random(in: 60...180)
-        nextFidgetTime = Double.random(in: 15...30)
+        nextFidgetTime = Double.random(in: 5...12)
         nextSighTime = Double.random(in: 30...90)
         nextHeadTargetTime = Double.random(in: 2...5)
         nextPoseDriftTime = Double.random(in: 20...40)
@@ -315,43 +315,68 @@ public class AvatarIdleAnimator {
                 let amp: Float
                 let interval: Double
                 if isSpeaking {
-                    amp = 12.0  // Disney: big expressive head movements
-                    interval = Double.random(in: 0.5...1.5)
+                    amp = 14.0  // Disney: big expressive head movements
+                    interval = Double.random(in: 0.3...1.0)  // rapid changes
                     headTarget = SIMD3(
                         Float.random(in: -amp...amp),
                         Float.random(in: -amp*0.5...amp*0.5),
                         Float.random(in: -amp*0.3...amp*0.3)
                     )
                 } else if isListening || currentMood == .listening {
+                    // LISTENING: head slightly tilted, frequent nods, forward lean
+                    // Visually distinct: "I'm paying attention to you"
                     amp = 5.0
-                    interval = Double.random(in: 2.0...4.0)
-                    // 50% chance of a big nod
-                    if Float.random(in: 0...1) < 0.5 {
+                    interval = Double.random(in: 0.8...2.0)  // frequent nods
+                    let r = Float.random(in: 0...1)
+                    if r < 0.5 {
+                        // Nod (most common when listening)
                         headTarget = SIMD3(
-                            Float.random(in: -2.0...2.0),
-                            Float.random(in: 4.0...8.0),   // big nod down
+                            Float.random(in: -1.5...1.5),
+                            Float.random(in: 5.0...10.0),   // big nod down
                             Float.random(in: -1.0...1.0)
                         )
+                    } else if r < 0.75 {
+                        // Slight head tilt (curious/engaged)
+                        let tiltDir: Float = Float.random(in: 0...1) < 0.5 ? 1 : -1
+                        headTarget = SIMD3(
+                            tiltDir * Float.random(in: 1.0...3.0),
+                            Float.random(in: 2.0...5.0),    // still slightly nodded
+                            tiltDir * Float.random(in: 3.0...6.0)  // visible tilt
+                        )
                     } else {
+                        // Small adjustment
                         headTarget = SIMD3(
                             Float.random(in: -amp...amp),
-                            Float.random(in: -2.0...2.0),
-                            Float.random(in: -1.5...1.5)
+                            Float.random(in: -2.0...3.0),
+                            Float.random(in: -2.0...2.0)
                         )
                     }
                 } else if currentMood == .thinking {
-                    amp = 8.0
-                    interval = Double.random(in: 2.5...5.0)
+                    // THINKING: look up and away, slow drifting gaze, head tilted
+                    // Visually distinct: "I'm processing something"
+                    amp = 10.0
+                    interval = Double.random(in: 1.5...3.5)  // slower, contemplative
                     let thinkDir = Float.random(in: 0...1) < 0.6 ? Float(1) : Float(-1)
-                    headTarget = SIMD3(
-                        thinkDir * Float.random(in: 4.0...8.0),   // big look to side
-                        Float.random(in: -8.0 ... -2.0),           // look way up
-                        thinkDir * Float.random(in: 2.0...5.0)     // big head tilt
-                    )
+                    let r = Float.random(in: 0...1)
+                    if r < 0.6 {
+                        // Look up and to the side (classic "thinking" pose)
+                        headTarget = SIMD3(
+                            thinkDir * Float.random(in: 5.0...10.0),
+                            Float.random(in: -10.0 ... -4.0),  // look UP
+                            thinkDir * Float.random(in: 3.0...7.0)
+                        )
+                    } else {
+                        // Look down (reading/pondering)
+                        headTarget = SIMD3(
+                            thinkDir * Float.random(in: 2.0...6.0),
+                            Float.random(in: 3.0...8.0),   // look DOWN
+                            thinkDir * Float.random(in: 1.0...4.0)
+                        )
+                    }
                 } else {
-                    // Idle: still noticeably alive
-                    amp = 6.0
-                    interval = Double.random(in: 2.0...4.0)
+                    // IDLE: casual, relaxed, looking around
+                    amp = 8.0
+                    interval = Double.random(in: 1.0...2.5)  // fairly active
                     headTarget = SIMD3(
                         Float.random(in: -amp...amp),
                         Float.random(in: -amp*0.5...amp*0.5),
@@ -361,20 +386,20 @@ public class AvatarIdleAnimator {
                 nextHeadTargetTime = now + interval
             }
             
-            // Spring physics (critically damped: ζ = 1)
-            // Different stiffness per state: speaking=snappy, thinking=dreamy, listening=calm
+            // Spring physics — FAST response, no sluggishness
+            // Higher stiffness = quicker to reach target
             let stiffness: Float
             if isSpeaking {
-                stiffness = 4.0   // snappy, responsive
+                stiffness = 8.0   // very snappy
             } else if currentMood == .thinking {
-                stiffness = 1.0   // slow, dreamy movement
+                stiffness = 2.5   // slower but still visible
             } else if isListening || currentMood == .listening {
-                stiffness = 1.5   // calm, steady
+                stiffness = 5.0   // responsive nods
             } else {
-                stiffness = 2.0   // normal idle
+                stiffness = 4.0   // active idle
             }
-            // Slightly overdamped (ζ > 1) to prevent any oscillation/bounce
-            let damping: Float = 2.5 * sqrt(stiffness)
+            // Critical damping (ζ = 1): fastest without oscillation
+            let damping: Float = 2.0 * sqrt(stiffness)
             
             // Add pose drift to target (so we never return to exact zero)
             let effectiveTarget = headTarget + poseDriftCurrent
@@ -392,16 +417,16 @@ public class AvatarIdleAnimator {
             
             // Prosody-driven additions
             if isSpeaking && smoothedEnergy > 0.15 {
-                let nodAmount = (smoothedEnergy - 0.15) * 4.0
+                let nodAmount = (smoothedEnergy - 0.15) * 8.0  // big energy nods
                 headPitch -= nodAmount
             }
             if isSpeaking && smoothedPitch > 0 {
                 let pitchDelta = smoothedPitch - prevSmoothedPitch
-                headPitch -= pitchDelta * 0.01
-                headRoll += pitchDelta * 0.005
+                headPitch -= pitchDelta * 0.02
+                headRoll += pitchDelta * 0.01
             }
             if isListening {
-                headPitch -= 5.0  // big forward lean (Disney: exaggerated attentiveness)
+                headPitch -= 7.0  // big forward lean ("I'm all ears")
             }
             
             // ═══════════════════════════════════════════
@@ -613,11 +638,11 @@ public class AvatarIdleAnimator {
         // Two sine waves per axis at different frequencies = pseudo-Perlin.
         // Disney: living things are never perfectly still.
         // ═══════════════════════════════════════════
-        let swaySpeed: Float = isSpeaking ? 0.6 : 0.3
+        let swaySpeed: Float = isSpeaking ? 1.0 : 0.5
         bodySwayPhase += SIMD3(dt * swaySpeed * 0.7, dt * swaySpeed * 0.5, dt * swaySpeed * 0.9)
         bodySwayPhase2 += SIMD3(dt * swaySpeed * 1.3, dt * swaySpeed * 1.1, dt * swaySpeed * 0.6)
         
-        let swayAmp: Float = isSpeaking ? 0.012 : 0.008
+        let swayAmp: Float = isSpeaking ? 0.02 : 0.015
         let sway1 = SIMD3<Float>(
             sin(bodySwayPhase.x) * swayAmp,          // left-right
             sin(bodySwayPhase.y) * swayAmp * 0.5,    // up-down (less)
@@ -894,7 +919,7 @@ public class AvatarIdleAnimator {
                 fidgetPhase = 0
                 fidgetType = Int.random(in: 0...6)
                 fidgetDirection = Bool.random() ? 1 : -1  // lock direction at start
-                nextFidgetTime = now + Double.random(in: 20...45)
+                nextFidgetTime = now + Double.random(in: 8...20)
             }
             return
         }
