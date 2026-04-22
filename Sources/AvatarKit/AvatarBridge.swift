@@ -234,6 +234,14 @@ public final class AvatarBridge {
                     typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
                     unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
                 }
+                
+                // Apple's _applyHeadPose in world mode (cameraSpace=0) does NOT apply
+                // translation — it only sets neck orientation. We must apply translation
+                // manually for idle animation spatial movement to work.
+                let t = tracking.headTranslation
+                if t.x != 0 || t.y != 0 || t.z != 0 {
+                    setRootJointPosition(t)
+                }
             }
         }
         
