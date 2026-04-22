@@ -37,10 +37,7 @@ public struct AvatarView: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UIView {
-        bridge.load(character)
-        
         guard let view = bridge.avtView else {
-            // Fallback: return empty view if AVTView unavailable
             let fallback = UIView()
             fallback.backgroundColor = backgroundColor
             return fallback
@@ -53,9 +50,18 @@ public struct AvatarView: UIViewRepresentable {
     public func updateUIView(_ uiView: UIView, context: Context) {
         uiView.backgroundColor = backgroundColor
         
-        // If character changed, reload
+        // Load avatar once the view is in the hierarchy (has a window).
+        // Loading in makeUIView can crash VFX because the render loop
+        // starts before Metal shaders finish compiling.
         if bridge.characterID != character {
-            bridge.load(character)
+            if uiView.window != nil {
+                bridge.load(character)
+            } else {
+                // View not yet in hierarchy — defer to next run loop
+                DispatchQueue.main.async { [bridge, character] in
+                    bridge.load(character)
+                }
+            }
         }
     }
 }
