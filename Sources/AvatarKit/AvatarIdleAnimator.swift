@@ -94,6 +94,12 @@ public class AvatarIdleAnimator {
     private var headVelocity = SIMD3<Float>.zero // angular velocity
     private var nextHeadTargetTime: TimeInterval = 0
     
+    // --- Body position (driven by breathing, head follows with drag) ---
+    private var bodyY: Float = 0          // current body Y from breathing
+    private var bodyYVelocity: Float = 0  // for smooth following
+    private var headDragY: Float = 0      // head's delayed follow of bodyY
+    private var headDragYVel: Float = 0
+    
     // --- Body sway (organic whole-body drift, independent of head rotation) ---
     private var bodySwayPhase: SIMD3<Float> = SIMD3(
         Float.random(in: 0...(.pi * 2)),
@@ -220,31 +226,43 @@ public class AvatarIdleAnimator {
         var headRoll: Float = 0
         
         // ═══════════════════════════════════════════
-        // Layer 1: Breathing (asymmetric: inhale 40%, exhale 60%)
-        // Real breathing: inhale is active (faster), exhale is passive (slower)
-        // Ratio ~1:1.5 (McFarland 2001)
+        // Layer 1: Breathing (BASE LAYER — drives body Y, head follows with drag)
+        // AnimSchool: "hips drive the motion, overlap travels up the spine"
+        // The body rises/falls with breath. The head follows ~0.15s later.
+        // This creates natural overlap/drag — the Disney "follow-through" principle.
         // ═══════════════════════════════════════════
         if breathingEnabled {
             let breathVisible: Float = isSpeaking ? 0.15 : 0.6
             let rate: Float = isSpeaking ? 0.6 : 1.0
-            breathPhase += dt * rate / 3.8  // 0→1 in ~3.8s
+            breathPhase += dt * rate / 3.8
             if breathPhase > 1.0 { breathPhase -= 1.0 }
             
-            // Asymmetric waveform: inhale (0→0.4) fast, exhale (0.4→1.0) slow
             let breathAmount: Float
             if breathPhase < 0.4 {
-                // Inhale: cubic ease-out (fast start, gentle peak)
                 let t = breathPhase / 0.4
                 breathAmount = cubicEaseOut(t)
             } else {
-                // Exhale: cubic ease-in (slow start from peak, accelerate at end)
                 let t = (breathPhase - 0.4) / 0.6
                 breathAmount = 1.0 - cubicEaseIn(t)
             }
             
             let depth = breathVisible * breathDepthVariation
             bs["jawOpen"] = breathAmount * 0.02 * depth
-            headPitch += breathAmount * 0.3 * depth  // head rises on inhale
+            
+            // Body Y driven by breathing (this is the "hips" in a bust)
+            bodyY = breathAmount * 0.006 * depth
+            
+            // Head follows body Y with DRAG (overlap principle)
+            // Spring-damper with lower stiffness = delayed follow
+            let dragStiffness: Float = 8.0  // how quickly head catches up
+            let dragDamping: Float = 2.0 * sqrt(dragStiffness)
+            let dragForce = (bodyY - headDragY) * dragStiffness
+            let dragDamp = -headDragYVel * dragDamping
+            headDragYVel += (dragForce + dragDamp) * dt
+            headDragY += headDragYVel * dt
+            
+            // Head pitch from breathing: rises on inhale (overlap = slightly delayed)
+            headPitch += breathAmount * 0.3 * depth
             
             // Occasional sigh (deep breath + exhale sound)
             if sighPhase >= 0 {
@@ -637,32 +655,26 @@ public class AvatarIdleAnimator {
         // Two sine waves per axis at different frequencies = pseudo-Perlin.
         // Disney: living things are never perfectly still.
         // ═══════════════════════════════════════════
-        // Body sway: very subtle for bust/portrait framing.
-        // Just enough to feel alive, not enough to float.
+        // Body sway: adds to body position, head follows with same drag
         let swaySpeed: Float = isSpeaking ? 0.4 : 0.2
         bodySwayPhase += SIMD3(dt * swaySpeed * 0.7, dt * swaySpeed * 0.5, dt * swaySpeed * 0.9)
         bodySwayPhase2 += SIMD3(dt * swaySpeed * 1.3, dt * swaySpeed * 1.1, dt * swaySpeed * 0.6)
         
         let swayAmp: Float = isSpeaking ? 0.004 : 0.003
         let sway1 = SIMD3<Float>(
-            sin(bodySwayPhase.x) * swayAmp,          // left-right
-            sin(bodySwayPhase.y) * swayAmp * 0.5,    // up-down (less)
-            sin(bodySwayPhase.z) * swayAmp * 0.7     // forward-back
+            sin(bodySwayPhase.x) * swayAmp,
+            0,  // Y is driven by breathing, not sway
+            sin(bodySwayPhase.z) * swayAmp * 0.7
         )
         let sway2 = SIMD3<Float>(
             sin(bodySwayPhase2.x) * swayAmp * 0.4,
-            sin(bodySwayPhase2.y) * swayAmp * 0.3,
+            0,
             sin(bodySwayPhase2.z) * swayAmp * 0.5
         )
-        derivedTranslation += (sway1 + sway2) * intensity
         
-        // Add breathing vertical bob (independent of rotation)
-        if breathingEnabled {
-            let breathBob: Float = breathPhase < 0.4
-                ? cubicEaseOut(breathPhase / 0.4)
-                : 1.0 - cubicEaseIn((breathPhase - 0.4) / 0.6)
-            derivedTranslation.y += breathBob * 0.001 * intensity
-        }
+        // Final translation: rotation-derived + body Y (with drag) + sway
+        derivedTranslation += (sway1 + sway2) * intensity
+        derivedTranslation.y += headDragY * intensity  // breathing Y with overlap
         
         onFrame?(bs, q, derivedTranslation)
     }
