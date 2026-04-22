@@ -64,8 +64,17 @@ public final class AvatarBridge {
     
     // MARK: - AVTView Setup
     
+    /// Whether rendering should be suppressed (during initial load).
+    private var suppressRendering = true
+    
     private func createAVTView() {
         guard let avtViewCls = NSClassFromString("AVTView") as? UIView.Type else { return }
+        
+        // Swizzle _avtUpdateRendersContinuously to prevent VFX from
+        // force-enabling continuous rendering before avatar is loaded.
+        // VFX crashes with NSRangeException on the render thread when
+        // the scene graph is empty but rendering is active.
+        swizzleRendersContinuously(avtViewCls)
         
         var view: UIView?
         var exception: NSException?
@@ -80,14 +89,6 @@ public final class AvatarBridge {
                 unsafeBitCast(imp, to: F.self)(v, sel, false)
             }
             
-            // Pause continuous rendering until avatar is loaded.
-            let pauseSel = NSSelectorFromString("setRendersContinuously:")
-            if v.responds(to: pauseSel),
-               let imp = class_getMethodImplementation(type(of: v), pauseSel) {
-                typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
-                unsafeBitCast(imp, to: F.self)(v, pauseSel, false)
-            }
-            
             view = v
         }, &exception)
         
@@ -96,6 +97,35 @@ public final class AvatarBridge {
         }
         
         self.avtView = view
+    }
+    
+    /// Original IMP of -[AVTView _avtUpdateRendersContinuously]
+    private static var originalUpdateRendersContinuously: IMP?
+    /// Whether swizzle has been applied
+    private static var didSwizzle = false
+    /// Global flag: allow rendering (set to true after avatar is loaded)
+    static var allowRendering = false
+    
+    private func swizzleRendersContinuously(_ cls: UIView.Type) {
+        guard !Self.didSwizzle else { return }
+        Self.didSwizzle = true
+        
+        let sel = NSSelectorFromString("_avtUpdateRendersContinuously")
+        guard let method = class_getInstanceMethod(cls, sel) else { return }
+        
+        Self.originalUpdateRendersContinuously = method_getImplementation(method)
+        
+        // Replace with a version that checks our flag
+        let block: @convention(block) (AnyObject) -> Void = { obj in
+            guard AvatarBridge.allowRendering else { return }
+            // Call original
+            if let orig = AvatarBridge.originalUpdateRendersContinuously {
+                typealias F = @convention(c) (AnyObject, Selector) -> Void
+                unsafeBitCast(orig, to: F.self)(obj, sel)
+            }
+        }
+        let imp = imp_implementationWithBlock(block)
+        method_setImplementation(method, imp)
     }
     
     // MARK: - Loading
@@ -133,39 +163,23 @@ public final class AvatarBridge {
             
             if let exception {
                 print("[AvatarBridge] setAvatar: exception (recovered): \(exception.name) - \(exception.reason ?? "")")
-                // Retry after a short delay — shaders should be compiled by then
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    guard let self, let view = self.avtView else { return }
-                    var retryEx: NSException?
-                    AVTTryPerform({
-                        let sel = NSSelectorFromString("setAvatar:")
-                        if view.responds(to: sel) {
-                            view.perform(sel, with: obj)
-                        }
-                    }, &retryEx)
-                    if retryEx == nil {
-                        self.resumeRendering(view: view)
-                    }
+            }
+            
+            // Allow rendering now that avatar scene graph is built.
+            // Delay by 2 frames to let VFX finish internal setup.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                Self.allowRendering = true
+                // Trigger the original _avtUpdateRendersContinuously
+                let sel = NSSelectorFromString("_avtUpdateRendersContinuously")
+                if view.responds(to: sel) {
+                    view.perform(sel)
                 }
-            } else {
-                // Success — resume rendering after one frame
-                resumeRendering(view: view)
             }
         }
         
         return true
     }
-    
-    private func resumeRendering(view: UIView) {
-        DispatchQueue.main.async {
-            let resumeSel = NSSelectorFromString("setRendersContinuously:")
-            if view.responds(to: resumeSel),
-               let imp = class_getMethodImplementation(type(of: view), resumeSel) {
-                typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
-                unsafeBitCast(imp, to: F.self)(view, resumeSel, true)
-            }
-        }
-    }
+
     
     // MARK: - Tracking
     
