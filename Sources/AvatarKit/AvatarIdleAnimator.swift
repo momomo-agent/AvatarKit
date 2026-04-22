@@ -622,10 +622,9 @@ public class AvatarIdleAnimator {
               * simd_quatf(angle: headPitch * rad, axis: SIMD3(1, 0, 0))
               * simd_quatf(angle: headRoll * rad, axis: SIMD3(0, 0, 1))
         
-        // Neck pivot: vector from head center DOWN to neck base
-        // In avatar scene units. Small value = subtle grounded movement.
-        // Too large = bouncy ball effect. Tuned by visual inspection.
-        let neckPivot = SIMD3<Float>(0, -0.06, 0)
+        // Neck pivot: very subtle — this is a bust/portrait, not a full body.
+        // Just enough to ground the rotation, not enough to drift.
+        let neckPivot = SIMD3<Float>(0, -0.02, 0)
         
         // Rotation around pivot: T = pivot + R * (-pivot)
         // This gives the displacement of the head center due to rotation
@@ -638,11 +637,13 @@ public class AvatarIdleAnimator {
         // Two sine waves per axis at different frequencies = pseudo-Perlin.
         // Disney: living things are never perfectly still.
         // ═══════════════════════════════════════════
-        let swaySpeed: Float = isSpeaking ? 1.0 : 0.5
+        // Body sway: very subtle for bust/portrait framing.
+        // Just enough to feel alive, not enough to float.
+        let swaySpeed: Float = isSpeaking ? 0.4 : 0.2
         bodySwayPhase += SIMD3(dt * swaySpeed * 0.7, dt * swaySpeed * 0.5, dt * swaySpeed * 0.9)
         bodySwayPhase2 += SIMD3(dt * swaySpeed * 1.3, dt * swaySpeed * 1.1, dt * swaySpeed * 0.6)
         
-        let swayAmp: Float = isSpeaking ? 0.02 : 0.015
+        let swayAmp: Float = isSpeaking ? 0.004 : 0.003
         let sway1 = SIMD3<Float>(
             sin(bodySwayPhase.x) * swayAmp,          // left-right
             sin(bodySwayPhase.y) * swayAmp * 0.5,    // up-down (less)
@@ -660,7 +661,7 @@ public class AvatarIdleAnimator {
             let breathBob: Float = breathPhase < 0.4
                 ? cubicEaseOut(breathPhase / 0.4)
                 : 1.0 - cubicEaseIn((breathPhase - 0.4) / 0.6)
-            derivedTranslation.y += breathBob * 0.002 * intensity
+            derivedTranslation.y += breathBob * 0.001 * intensity
         }
         
         onFrame?(bs, q, derivedTranslation)
