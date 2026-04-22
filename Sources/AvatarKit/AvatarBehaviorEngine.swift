@@ -83,6 +83,7 @@ public class AvatarBehaviorEngine {
     
     private var displayLink: CADisplayLink?
     private var lastTime: TimeInterval = 0
+    private var debugFrameCount: Int = 0
     private var stateEntryTime: TimeInterval = 0
     
     // Listening state
@@ -175,6 +176,15 @@ public class AvatarBehaviorEngine {
             for (key, value) in emotionBS {
                 merged.blendshapes[key] = (merged.blendshapes[key] ?? 0) + value
             }
+            
+            // DEBUG: log quaternion every 120 frames (~2s)
+            if self.debugFrameCount % 120 == 0 {
+                if let q = merged.rawQuaternion {
+                    let angle = 2 * acos(min(abs(q.real), 1.0)) * 180 / .pi
+                    print("[BEH] state=\(self.state) q=(\(String(format: "%.3f,%.3f,%.3f,%.3f", q.imag.x, q.imag.y, q.imag.z, q.real))) angle=\(String(format: "%.1f", angle))° t=(\(String(format: "%.3f,%.3f,%.3f", merged.headTranslation.x, merged.headTranslation.y, merged.headTranslation.z))) bs=\(merged.blendshapes.count)")
+                }
+            }
+            self.debugFrameCount += 1
             
             self.onFrame?(merged)
         }
