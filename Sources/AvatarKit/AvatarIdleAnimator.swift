@@ -386,17 +386,17 @@ public class AvatarIdleAnimator {
                 nextHeadTargetTime = now + interval
             }
             
-            // Spring physics — FAST response, no sluggishness
-            // Higher stiffness = quicker to reach target
+            // Spring physics — SNAPPY response for cartoon feel
+            // High stiffness = head reaches target in ~0.3s
             let stiffness: Float
             if isSpeaking {
-                stiffness = 8.0   // very snappy
+                stiffness = 20.0  // very snappy
             } else if currentMood == .thinking {
-                stiffness = 2.5   // slower but still visible
+                stiffness = 6.0   // slower, contemplative
             } else if isListening || currentMood == .listening {
-                stiffness = 5.0   // responsive nods
+                stiffness = 14.0  // responsive nods
             } else {
-                stiffness = 4.0   // active idle
+                stiffness = 10.0  // active idle
             }
             // Critical damping (ζ = 1): fastest without oscillation
             let damping: Float = 2.0 * sqrt(stiffness)
