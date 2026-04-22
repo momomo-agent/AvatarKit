@@ -300,69 +300,54 @@ public class AvatarIdleAnimator {
         // ═══════════════════════════════════════════
         if headMotionEnabled {
             // Pick new head targets periodically
+            // Disney EXAGGERATION: all amplitudes 50-100% larger than realistic
             if now > nextHeadTargetTime {
                 let amp: Float
                 let interval: Double
                 if isSpeaking {
-                    amp = 6.0  // very expressive
-                    interval = Double.random(in: 0.8...2.0)
-                } else if isListening {
-                    // Listening: smaller range, mostly forward-facing, occasional nod
-                    amp = 2.0
-                    interval = Double.random(in: 3.0...6.0)
-                    // 40% chance of a nod (pitch down then up)
-                    if Float.random(in: 0...1) < 0.4 {
+                    amp = 12.0  // Disney: big expressive head movements
+                    interval = Double.random(in: 0.5...1.5)
+                    headTarget = SIMD3(
+                        Float.random(in: -amp...amp),
+                        Float.random(in: -amp*0.5...amp*0.5),
+                        Float.random(in: -amp*0.3...amp*0.3)
+                    )
+                } else if isListening || currentMood == .listening {
+                    amp = 5.0
+                    interval = Double.random(in: 2.0...4.0)
+                    // 50% chance of a big nod
+                    if Float.random(in: 0...1) < 0.5 {
                         headTarget = SIMD3(
-                            Float.random(in: -1.0...1.0),  // minimal yaw
-                            Float.random(in: 2.0...4.0),   // nod down
-                            Float.random(in: -0.5...0.5)
+                            Float.random(in: -2.0...2.0),
+                            Float.random(in: 4.0...8.0),   // big nod down
+                            Float.random(in: -1.0...1.0)
                         )
                     } else {
                         headTarget = SIMD3(
                             Float.random(in: -amp...amp),
-                            Float.random(in: -1.0...1.0),
-                            Float.random(in: -0.5...0.5)
+                            Float.random(in: -2.0...2.0),
+                            Float.random(in: -1.5...1.5)
                         )
                     }
                 } else if currentMood == .thinking {
-                    // Thinking: look up/away, head tilted, longer holds
-                    amp = 4.0
-                    interval = Double.random(in: 3.0...7.0)
+                    amp = 8.0
+                    interval = Double.random(in: 2.5...5.0)
                     let thinkDir = Float.random(in: 0...1) < 0.6 ? Float(1) : Float(-1)
                     headTarget = SIMD3(
-                        thinkDir * Float.random(in: 2.0...5.0),  // look to one side
-                        Float.random(in: -4.0 ... -1.0),          // look up (negative pitch = up)
-                        thinkDir * Float.random(in: 1.0...3.0)    // head tilt toward gaze
-                    )
-                } else if currentMood == .listening {
-                    // Listening: mostly forward, occasional small adjustments
-                    amp = 2.0
-                    interval = Double.random(in: 3.0...6.0)
-                    headTarget = SIMD3(
-                        Float.random(in: -1.5...1.5),
-                        Float.random(in: -1.0...1.0),
-                        Float.random(in: -0.5...0.5)
+                        thinkDir * Float.random(in: 4.0...8.0),   // big look to side
+                        Float.random(in: -8.0 ... -2.0),           // look way up
+                        thinkDir * Float.random(in: 2.0...5.0)     // big head tilt
                     )
                 } else {
-                    amp = 3.5
-                    interval = Double.random(in: 2.5...5.0)
-                }
-                // Set headTarget for states that didn't set it in their branch
-                if isSpeaking {
-                    headTarget = SIMD3(
-                        Float.random(in: -amp...amp),
-                        Float.random(in: -amp*0.4...amp*0.4),
-                        Float.random(in: -amp*0.2...amp*0.2)
-                    )
-                } else if !isListening && currentMood != .thinking && currentMood != .listening {
-                    // Idle: normal range
+                    // Idle: still noticeably alive
+                    amp = 6.0
+                    interval = Double.random(in: 2.0...4.0)
                     headTarget = SIMD3(
                         Float.random(in: -amp...amp),
                         Float.random(in: -amp*0.5...amp*0.5),
-                        Float.random(in: -amp*0.25...amp*0.25)
+                        Float.random(in: -amp*0.3...amp*0.3)
                     )
                 }
-                // listening and thinking already set headTarget above
                 nextHeadTargetTime = now + interval
             }
             
@@ -406,7 +391,7 @@ public class AvatarIdleAnimator {
                 headRoll += pitchDelta * 0.005
             }
             if isListening {
-                headPitch -= 3.0  // noticeable forward lean (attentive)
+                headPitch -= 5.0  // big forward lean (Disney: exaggerated attentiveness)
             }
             
             // ═══════════════════════════════════════════
@@ -414,9 +399,9 @@ public class AvatarIdleAnimator {
             // ═══════════════════════════════════════════
             weightShiftPhase += dt * 2 * .pi / 6.0
             if weightShiftPhase > 2 * .pi { weightShiftPhase -= 2 * .pi }
-            let swayAmount = sin(weightShiftPhase) * 0.5
-            headRoll += swayAmount * 0.8
-            headYaw += swayAmount * 0.3
+            let swayAmount = sin(weightShiftPhase) * 0.8
+            headRoll += swayAmount * 1.5
+            headYaw += swayAmount * 0.5
         }
         
         // ═══════════════════════════════════════════
@@ -605,7 +590,7 @@ public class AvatarIdleAnimator {
         // Neck pivot: vector from head center DOWN to neck base
         // In avatar scene units. Small value = subtle grounded movement.
         // Too large = bouncy ball effect. Tuned by visual inspection.
-        let neckPivot = SIMD3<Float>(0, -0.03, 0)
+        let neckPivot = SIMD3<Float>(0, -0.06, 0)
         
         // Rotation around pivot: T = pivot + R * (-pivot)
         // This gives the displacement of the head center due to rotation
@@ -821,38 +806,39 @@ public class AvatarIdleAnimator {
         currentMood = mood
         moodTransitionProgress = 0
         switch mood {
+        // Disney EXAGGERATION: expressions 2-3x stronger than realistic
         case .neutral: moodBlendshapes = [:]
         case .happy: moodBlendshapes = [
-            "mouthSmileLeft": 0.25, "mouthSmileRight": 0.25,
-            "cheekSquintLeft": 0.15, "cheekSquintRight": 0.15,
-            "eyeSquintLeft": 0.08, "eyeSquintRight": 0.08,  // Duchenne smile
-            "noseSneerLeft": 0.05, "noseSneerRight": 0.05,
+            "mouthSmileLeft": 0.4, "mouthSmileRight": 0.4,
+            "cheekSquintLeft": 0.25, "cheekSquintRight": 0.25,
+            "eyeSquintLeft": 0.15, "eyeSquintRight": 0.15,
+            "noseSneerLeft": 0.08, "noseSneerRight": 0.08,
         ]
         case .thinking: moodBlendshapes = [
-            "browInnerUp": 0.25,                              // furrowed brow
-            "eyeSquintLeft": 0.15, "eyeSquintRight": 0.15,   // squinting = processing
-            "mouthPucker": 0.1,                               // pursed lips
-            "mouthRollLower": 0.12,                           // lip roll = deep thought
-            "eyeLookUpLeft": 0.15, "eyeLookUpRight": 0.15,   // eyes drift up (recall)
-            "browOuterUpLeft": 0.08,                          // asymmetric brow (one side up)
+            "browInnerUp": 0.35,
+            "eyeSquintLeft": 0.2, "eyeSquintRight": 0.2,
+            "mouthPucker": 0.15,
+            "mouthRollLower": 0.18,
+            "eyeLookUpLeft": 0.25, "eyeLookUpRight": 0.25,
+            "browOuterUpLeft": 0.15,
         ]
         case .surprised: moodBlendshapes = [
-            "eyeWideLeft": 0.35, "eyeWideRight": 0.35,
-            "browOuterUpLeft": 0.25, "browOuterUpRight": 0.25,
-            "browInnerUp": 0.2,
-            "jawOpen": 0.1,
+            "eyeWideLeft": 0.5, "eyeWideRight": 0.5,
+            "browOuterUpLeft": 0.4, "browOuterUpRight": 0.4,
+            "browInnerUp": 0.35,
+            "jawOpen": 0.2,
         ]
         case .concerned: moodBlendshapes = [
-            "browInnerUp": 0.3,
-            "mouthFrownLeft": 0.15, "mouthFrownRight": 0.15,
-            "eyeSquintLeft": 0.1, "eyeSquintRight": 0.1,
-            "mouthPressLeft": 0.08, "mouthPressRight": 0.08,
+            "browInnerUp": 0.4,
+            "mouthFrownLeft": 0.25, "mouthFrownRight": 0.25,
+            "eyeSquintLeft": 0.15, "eyeSquintRight": 0.15,
+            "mouthPressLeft": 0.12, "mouthPressRight": 0.12,
         ]
         case .listening: moodBlendshapes = [
-            "eyeWideLeft": 0.08, "eyeWideRight": 0.08,     // slightly wider eyes (attentive)
-            "browInnerUp": 0.08,                             // slight brow raise (engaged)
-            "mouthClose": 0.05,                              // mouth closed (not about to speak)
-            "mouthPressLeft": 0.04, "mouthPressRight": 0.04, // lips together
+            "eyeWideLeft": 0.12, "eyeWideRight": 0.12,
+            "browInnerUp": 0.12,
+            "mouthClose": 0.08,
+            "mouthPressLeft": 0.06, "mouthPressRight": 0.06,
         ]
         }
     }
@@ -928,8 +914,8 @@ public class AvatarIdleAnimator {
         let envelope = anticipation + mainAction + followThrough
         
         switch fidgetType {
-        case 0: // Look to one side
-            headYaw += dir * envelope * 10.0
+        case 0: // Look to one side — BIG turn
+            headYaw += dir * envelope * 18.0
             // Eyes lead head (overlapping action: eyes 30% ahead)
             let eyePhase = min(p * 1.3, 1.0)
             let eyeEnvelope = eyePhase < 0.5 ? cubicEaseOut(eyePhase * 2) : 1.0 - cubicEaseIn((eyePhase - 0.5) * 2)
@@ -950,18 +936,18 @@ public class AvatarIdleAnimator {
             }
             
         case 1: // Shoulder roll
-            headRoll += dir * envelope * 6.0
-            headPitch += envelope * 2.5
+            headRoll += dir * envelope * 10.0
+            headPitch += envelope * 4.0
             
-        case 2: // Big head turn
-            headYaw += dir * envelope * 14.0
-            headPitch -= envelope * 3.0
+        case 2: // Big head turn — like double-take
+            headYaw += dir * envelope * 22.0
+            headPitch -= envelope * 5.0
             // Squint on the side we're turning toward (effort)
             let squintSide = dir > 0 ? "eyeSquintRight" : "eyeSquintLeft"
             bs[squintSide] = (bs[squintSide] ?? 0) + max(0, mainAction) * 0.08
             
         case 3: // Quick glance up
-            headPitch -= envelope * 7.0
+            headPitch -= envelope * 12.0
             bs["eyeLookUpLeft"] = (bs["eyeLookUpLeft"] ?? 0) + max(0, envelope) * 0.4
             bs["eyeLookUpRight"] = (bs["eyeLookUpRight"] ?? 0) + max(0, envelope) * 0.4
             bs["browOuterUpLeft"] = (bs["browOuterUpLeft"] ?? 0) + max(0, envelope) * 0.15
@@ -969,20 +955,20 @@ public class AvatarIdleAnimator {
             
         case 4: // Lean back then forward
             let leanCurve = sin(p * 2 * .pi)
-            headPitch += leanCurve * 5.0
+            headPitch += leanCurve * 8.0
             
         case 5: // Head tilt with curious brow
-            headRoll += dir * envelope * 8.0
-            headPitch -= envelope * 2.5
+            headRoll += dir * envelope * 14.0
+            headPitch -= envelope * 4.0
             bs["browInnerUp"] = (bs["browInnerUp"] ?? 0) + max(0, envelope) * 0.2
             let browSide = dir > 0 ? "browOuterUpRight" : "browOuterUpLeft"
             bs[browSide] = (bs[browSide] ?? 0) + max(0, envelope) * 0.15
             
         default: // Jaw stretch
-            bs["jawOpen"] = (bs["jawOpen"] ?? 0) + max(0, envelope) * 0.15
-            bs["mouthStretchLeft"] = (bs["mouthStretchLeft"] ?? 0) + max(0, envelope) * 0.1
-            bs["mouthStretchRight"] = (bs["mouthStretchRight"] ?? 0) + max(0, envelope) * 0.1
-            headPitch += envelope * 2.5
+            bs["jawOpen"] = (bs["jawOpen"] ?? 0) + max(0, envelope) * 0.25
+            bs["mouthStretchLeft"] = (bs["mouthStretchLeft"] ?? 0) + max(0, envelope) * 0.15
+            bs["mouthStretchRight"] = (bs["mouthStretchRight"] ?? 0) + max(0, envelope) * 0.15
+            headPitch += envelope * 4.0
         }
     }
     
