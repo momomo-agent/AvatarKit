@@ -89,11 +89,10 @@ public class AvatarAnimationMixer {
         }
 
         mixDebugCount += 1
-        if mixDebugCount % 30 == 0 {
-            let jaw = lipSyncBlendshapes["jawOpen"] ?? 0
-            let jawM = merged["jawOpen"] ?? -1
-            let lipN = lipSyncBlendshapes.count
-            os_log(.default, log: mixLog, "[MIX] lip=%{public}d jaw_lip=%{public}.3f jaw_m=%{public}.3f active=%{public}d", lipN, jaw, jawM, lipSyncActive ? 1 : 0)
+        if mixDebugCount % 60 == 0 {
+            let keys = merged.keys.sorted().joined(separator: ",")
+            let vals = merged.keys.sorted().map { String(format: "%.3f", merged[$0]!) }.joined(separator: ",")
+            os_log(.default, log: mixLog, "[MIX] keys=%{public}@ vals=%{public}@", keys, vals)
         }
         
         // Layer 1.5: Performative pose (additive on idle, before lip sync)
@@ -143,9 +142,10 @@ public class AvatarAnimationMixer {
         for key in merged.keys {
             merged[key] = min(max(merged[key]!, 0), 1)
         }
-        
-        // Remove near-zero
-        merged = merged.filter { $0.value > 0.001 }
+
+        // Don't filter out near-zero values — removing keys causes Apple's
+        // renderer to snap between "key present at small value" and "key absent",
+        // which looks like twitching. Keep all keys, let the renderer interpolate.
         
         // Head rotation: compose idle + pose neck orientation
         let poseNeck = poseBlender.neckOrientation()
