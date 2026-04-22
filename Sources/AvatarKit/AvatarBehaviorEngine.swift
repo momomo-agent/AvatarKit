@@ -228,7 +228,7 @@ public class AvatarBehaviorEngine {
             idleAnimator.isListening = true
             gazeController.isListening = true
             gazeController.lookAt(SIMD2(0, 0))
-            idleAnimator.setMood(.neutral)
+            idleAnimator.setMood(.listening)
             emotion.setEmotion(.neutral)
             scheduleNextNod()
             

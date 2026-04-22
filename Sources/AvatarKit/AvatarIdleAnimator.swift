@@ -310,19 +310,83 @@ public class AvatarIdleAnimator {
         if headMotionEnabled {
             // Pick new head targets periodically
             if now > nextHeadTargetTime {
-                let amp: Float = isSpeaking ? 5.0 : (isListening ? 3.0 : 3.5)
-                headTarget = SIMD3(
-                    Float.random(in: -amp...amp),           // yaw
-                    Float.random(in: -amp*0.5...amp*0.5),   // pitch
-                    Float.random(in: -amp*0.25...amp*0.25)  // roll
-                )
-                let interval = isSpeaking ? Double.random(in: 1.0...2.5) : Double.random(in: 2.5...5.0)
+                let amp: Float
+                let interval: Double
+                if isSpeaking {
+                    amp = 6.0  // very expressive
+                    interval = Double.random(in: 0.8...2.0)
+                } else if isListening {
+                    // Listening: smaller range, mostly forward-facing, occasional nod
+                    amp = 2.0
+                    interval = Double.random(in: 3.0...6.0)
+                    // 40% chance of a nod (pitch down then up)
+                    if Float.random(in: 0...1) < 0.4 {
+                        headTarget = SIMD3(
+                            Float.random(in: -1.0...1.0),  // minimal yaw
+                            Float.random(in: 2.0...4.0),   // nod down
+                            Float.random(in: -0.5...0.5)
+                        )
+                    } else {
+                        headTarget = SIMD3(
+                            Float.random(in: -amp...amp),
+                            Float.random(in: -1.0...1.0),
+                            Float.random(in: -0.5...0.5)
+                        )
+                    }
+                } else if currentMood == .thinking {
+                    // Thinking: look up/away, head tilted, longer holds
+                    amp = 4.0
+                    interval = Double.random(in: 3.0...7.0)
+                    let thinkDir = Float.random(in: 0...1) < 0.6 ? Float(1) : Float(-1)
+                    headTarget = SIMD3(
+                        thinkDir * Float.random(in: 2.0...5.0),  // look to one side
+                        Float.random(in: -4.0 ... -1.0),          // look up (negative pitch = up)
+                        thinkDir * Float.random(in: 1.0...3.0)    // head tilt toward gaze
+                    )
+                } else if currentMood == .listening {
+                    // Listening: mostly forward, occasional small adjustments
+                    amp = 2.0
+                    interval = Double.random(in: 3.0...6.0)
+                    headTarget = SIMD3(
+                        Float.random(in: -1.5...1.5),
+                        Float.random(in: -1.0...1.0),
+                        Float.random(in: -0.5...0.5)
+                    )
+                } else {
+                    amp = 3.5
+                    interval = Double.random(in: 2.5...5.0)
+                }
+                // Set headTarget for states that didn't set it in their branch
+                if isSpeaking {
+                    headTarget = SIMD3(
+                        Float.random(in: -amp...amp),
+                        Float.random(in: -amp*0.4...amp*0.4),
+                        Float.random(in: -amp*0.2...amp*0.2)
+                    )
+                } else if !isListening && currentMood != .thinking && currentMood != .listening {
+                    // Idle: normal range
+                    headTarget = SIMD3(
+                        Float.random(in: -amp...amp),
+                        Float.random(in: -amp*0.5...amp*0.5),
+                        Float.random(in: -amp*0.25...amp*0.25)
+                    )
+                }
+                // listening and thinking already set headTarget above
                 nextHeadTargetTime = now + interval
             }
             
             // Spring physics (critically damped: ζ = 1)
-            // k = stiffness, d = damping = 2*sqrt(k) for critical damping
-            let stiffness: Float = isSpeaking ? 4.0 : 2.0
+            // Different stiffness per state: speaking=snappy, thinking=dreamy, listening=calm
+            let stiffness: Float
+            if isSpeaking {
+                stiffness = 4.0   // snappy, responsive
+            } else if currentMood == .thinking {
+                stiffness = 1.0   // slow, dreamy movement
+            } else if isListening || currentMood == .listening {
+                stiffness = 1.5   // calm, steady
+            } else {
+                stiffness = 2.0   // normal idle
+            }
             let damping: Float = 2.0 * sqrt(stiffness)
             
             // Add pose drift to target (so we never return to exact zero)
@@ -350,7 +414,8 @@ public class AvatarIdleAnimator {
                 headRoll += pitchDelta * 0.005
             }
             if isListening {
-                headPitch -= 1.5  // forward lean
+                headPitch -= 3.0  // noticeable forward lean (attentive)
+                headTz -= 0.004   // lean body forward too
             }
             
             // ═══════════════════════════════════════════
@@ -769,7 +834,7 @@ public class AvatarIdleAnimator {
     // MARK: - Mood System
     
     public enum Mood {
-        case neutral, happy, thinking, surprised, concerned
+        case neutral, happy, thinking, surprised, concerned, listening
     }
     
     public func setMood(_ mood: Mood) {
@@ -779,22 +844,36 @@ public class AvatarIdleAnimator {
         switch mood {
         case .neutral: moodBlendshapes = [:]
         case .happy: moodBlendshapes = [
-            "mouthSmileLeft": 0.15, "mouthSmileRight": 0.15,
-            "cheekSquintLeft": 0.1, "cheekSquintRight": 0.1,
+            "mouthSmileLeft": 0.25, "mouthSmileRight": 0.25,
+            "cheekSquintLeft": 0.15, "cheekSquintRight": 0.15,
+            "eyeSquintLeft": 0.08, "eyeSquintRight": 0.08,  // Duchenne smile
+            "noseSneerLeft": 0.05, "noseSneerRight": 0.05,
         ]
         case .thinking: moodBlendshapes = [
-            "browInnerUp": 0.15,
-            "eyeSquintLeft": 0.1, "eyeSquintRight": 0.1,
-            "mouthPucker": 0.05, "mouthRollLower": 0.06,
+            "browInnerUp": 0.25,                              // furrowed brow
+            "eyeSquintLeft": 0.15, "eyeSquintRight": 0.15,   // squinting = processing
+            "mouthPucker": 0.1,                               // pursed lips
+            "mouthRollLower": 0.12,                           // lip roll = deep thought
+            "eyeLookUpLeft": 0.15, "eyeLookUpRight": 0.15,   // eyes drift up (recall)
+            "browOuterUpLeft": 0.08,                          // asymmetric brow (one side up)
         ]
         case .surprised: moodBlendshapes = [
-            "eyeWideLeft": 0.2, "eyeWideRight": 0.2,
-            "browOuterUpLeft": 0.15, "browOuterUpRight": 0.15,
-            "jawOpen": 0.05,
+            "eyeWideLeft": 0.35, "eyeWideRight": 0.35,
+            "browOuterUpLeft": 0.25, "browOuterUpRight": 0.25,
+            "browInnerUp": 0.2,
+            "jawOpen": 0.1,
         ]
         case .concerned: moodBlendshapes = [
-            "browInnerUp": 0.2,
-            "mouthFrownLeft": 0.1, "mouthFrownRight": 0.1,
+            "browInnerUp": 0.3,
+            "mouthFrownLeft": 0.15, "mouthFrownRight": 0.15,
+            "eyeSquintLeft": 0.1, "eyeSquintRight": 0.1,
+            "mouthPressLeft": 0.08, "mouthPressRight": 0.08,
+        ]
+        case .listening: moodBlendshapes = [
+            "eyeWideLeft": 0.08, "eyeWideRight": 0.08,     // slightly wider eyes (attentive)
+            "browInnerUp": 0.08,                             // slight brow raise (engaged)
+            "mouthClose": 0.05,                              // mouth closed (not about to speak)
+            "mouthPressLeft": 0.04, "mouthPressRight": 0.04, // lips together
         ]
         }
     }
