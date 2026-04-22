@@ -3,6 +3,7 @@ import simd
 import UIKit
 import ObjectiveC
 import SceneKit
+import ObjCBridge
 import ARKit
 
 // MARK: - Avatar Bridge
@@ -66,24 +67,32 @@ public final class AvatarBridge {
     private func createAVTView() {
         guard let avtViewCls = NSClassFromString("AVTView") as? UIView.Type else { return }
         
-        let view = avtViewCls.init(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        var view: UIView?
+        var exception: NSException?
+        AVTTryPerform({
+            let v = avtViewCls.init(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+            
+            // Disable face tracking — we drive expressions manually
+            let sel = NSSelectorFromString("setEnableFaceTracking:")
+            if v.responds(to: sel),
+               let imp = class_getMethodImplementation(type(of: v), sel) {
+                typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
+                unsafeBitCast(imp, to: F.self)(v, sel, false)
+            }
+            
+            // Pause continuous rendering until avatar is loaded.
+            let pauseSel = NSSelectorFromString("setRendersContinuously:")
+            if v.responds(to: pauseSel),
+               let imp = class_getMethodImplementation(type(of: v), pauseSel) {
+                typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
+                unsafeBitCast(imp, to: F.self)(v, pauseSel, false)
+            }
+            
+            view = v
+        }, &exception)
         
-        // Disable face tracking — we drive expressions manually
-        let sel = NSSelectorFromString("setEnableFaceTracking:")
-        if view.responds(to: sel),
-           let imp = class_getMethodImplementation(type(of: view), sel) {
-            typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
-            unsafeBitCast(imp, to: F.self)(view, sel, false)
-        }
-        
-        // Pause continuous rendering until avatar is loaded.
-        // VFX crashes with NSRangeException if the render loop runs
-        // before the avatar scene graph is fully built.
-        let pauseSel = NSSelectorFromString("setRendersContinuously:")
-        if view.responds(to: pauseSel),
-           let imp = class_getMethodImplementation(type(of: view), pauseSel) {
-            typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
-            unsafeBitCast(imp, to: F.self)(view, pauseSel, false)
+        if let exception {
+            print("[AvatarBridge] AVTView init exception (recovered): \(exception.name) - \(exception.reason ?? "")")
         }
         
         self.avtView = view
@@ -111,26 +120,51 @@ public final class AvatarBridge {
         self.animoji = obj
         self.characterID = characterID
         
-        // Set avatar on AVTView
+        // Set avatar on AVTView (wrapped in exception handler —
+        // VFX can crash during initial render while Metal shaders compile)
         if let view = avtView {
-            let setAvatarSel = NSSelectorFromString("setAvatar:")
-            if view.responds(to: setAvatarSel) {
-                view.perform(setAvatarSel, with: obj)
-            }
-            
-            // Resume continuous rendering now that avatar scene graph is built.
-            // Delay by one frame to let VFX finish internal setup.
-            DispatchQueue.main.async {
-                let resumeSel = NSSelectorFromString("setRendersContinuously:")
-                if view.responds(to: resumeSel),
-                   let imp = class_getMethodImplementation(type(of: view), resumeSel) {
-                    typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
-                    unsafeBitCast(imp, to: F.self)(view, resumeSel, true)
+            var exception: NSException?
+            AVTTryPerform({
+                let setAvatarSel = NSSelectorFromString("setAvatar:")
+                if view.responds(to: setAvatarSel) {
+                    view.perform(setAvatarSel, with: obj)
                 }
+            }, &exception)
+            
+            if let exception {
+                print("[AvatarBridge] setAvatar: exception (recovered): \(exception.name) - \(exception.reason ?? "")")
+                // Retry after a short delay — shaders should be compiled by then
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, let view = self.avtView else { return }
+                    var retryEx: NSException?
+                    AVTTryPerform({
+                        let sel = NSSelectorFromString("setAvatar:")
+                        if view.responds(to: sel) {
+                            view.perform(sel, with: obj)
+                        }
+                    }, &retryEx)
+                    if retryEx == nil {
+                        self.resumeRendering(view: view)
+                    }
+                }
+            } else {
+                // Success — resume rendering after one frame
+                resumeRendering(view: view)
             }
         }
         
         return true
+    }
+    
+    private func resumeRendering(view: UIView) {
+        DispatchQueue.main.async {
+            let resumeSel = NSSelectorFromString("setRendersContinuously:")
+            if view.responds(to: resumeSel),
+               let imp = class_getMethodImplementation(type(of: view), resumeSel) {
+                typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
+                unsafeBitCast(imp, to: F.self)(view, resumeSel, true)
+            }
+        }
     }
     
     // MARK: - Tracking
