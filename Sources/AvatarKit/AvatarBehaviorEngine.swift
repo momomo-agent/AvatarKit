@@ -1,6 +1,9 @@
 import Foundation
 import QuartzCore
 import simd
+import os.log
+
+private let behLog = OSLog(subsystem: "com.momomo.avatarkit", category: "behavior")
 
 // MARK: - Behavior Engine
 
@@ -123,8 +126,11 @@ public class AvatarBehaviorEngine {
         mixer.idleAnimator = idleAnimator
         
         // Lip sync amplitude → idle animator energy (for head motion)
+        // Dispatch to main thread since audio tap fires on background thread
         lipSync.onAmplitude = { [weak self] rms in
-            self?.idleAnimator.audioEnergy = rms
+            DispatchQueue.main.async {
+                self?.idleAnimator.audioEnergy = rms
+            }
         }
         
         // Gaze output → merge into mixer
@@ -314,6 +320,7 @@ public class AvatarBehaviorEngine {
     
     /// Start speaking with audio node.
     public func speakWithAudioNode(_ node: AVAudioNode, engine: AVAudioEngine) {
+        os_log(.default, log: behLog, "[BEH] speakWithAudioNode called, transitioning to speaking")
         transition(to: .speaking)
         lipSync.startWithAudioNode(node, engine: engine)
         mixer.updateSpeakingState(isSpeaking: true)
@@ -367,10 +374,9 @@ public class AvatarBehaviorEngine {
         // Drive subsystems from this single DisplayLink.
         // Skip idle/lipSync when emoting — ExpressionAnimator drives onFrame directly.
         if state != .emoting {
-            // Note: gazeController and headGesture are ticked inside mixer.onFrame
-            // (after idle produces its output) so they merge in the same frame.
-            idleAnimator.externalTick()
+            // LipSync first (updates data only), then idle (triggers single mix).
             lipSync.externalTick()
+            idleAnimator.externalTick()
         }
 
         switch state {

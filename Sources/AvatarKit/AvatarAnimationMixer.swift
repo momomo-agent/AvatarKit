@@ -1,5 +1,8 @@
 import Foundation
 import simd
+import os.log
+
+private let mixLog = OSLog(subsystem: "com.momomo.avatarkit", category: "mixer")
 
 // MARK: - Animation Mixer
 
@@ -24,7 +27,9 @@ public class AvatarAnimationMixer {
     /// The performative pose blender. Provides semantic expression overlays.
     public let poseBlender = PoseBlender()
     
-    /// Manual blendshape overrides. These always win.
+    /// Whether the character is currently speaking (set by BehaviorEngine).
+    /// Used to suppress idle mouth shapes even when lip sync data is momentarily empty.
+    public var isSpeaking = false
     public var manualOverrides: [String: Float] = [:]
     
     /// Manual head rotation override. Set to nil to use computed rotation.
@@ -51,9 +56,10 @@ public class AvatarAnimationMixer {
 
     /// Wire up the animation sources. Call this after setting lipSync and idleAnimator.
     public func connect() {
+        // LipSync only updates data — does NOT trigger mix.
+        // IdleAnimator triggers the single mix() per frame.
         lipSync?.onFrame = { [weak self] blendshapes in
             self?.lipSyncBlendshapes = blendshapes
-            self?.mix()
         }
 
         idleAnimator?.onFrame = { [weak self] blendshapes, headRotation, headTranslation, bodyRotation, bodyTranslation in
@@ -68,31 +74,41 @@ public class AvatarAnimationMixer {
     
     // MARK: - Mixing
     
+    private var mixDebugCount = 0
+
     private func mix() {
         var merged: [String: Float] = [:]
-        
+
         // Layer 1: Idle (base layer)
+        // When speaking, strip ALL mouth blendshapes from idle
+        // Use isSpeaking flag (not lipSyncBlendshapes.isEmpty) to avoid flicker
+        let lipSyncActive = isSpeaking || !lipSyncBlendshapes.isEmpty
         for (key, value) in idleBlendshapes {
+            if lipSyncActive && Self.mouthBlendshapes.contains(key) { continue }
             merged[key] = value
+        }
+
+        mixDebugCount += 1
+        if mixDebugCount % 30 == 0 {
+            let jaw = lipSyncBlendshapes["jawOpen"] ?? 0
+            let jawM = merged["jawOpen"] ?? -1
+            let lipN = lipSyncBlendshapes.count
+            os_log(.default, log: mixLog, "[MIX] lip=%{public}d jaw_lip=%{public}.3f jaw_m=%{public}.3f active=%{public}d", lipN, jaw, jawM, lipSyncActive ? 1 : 0)
         }
         
         // Layer 1.5: Performative pose (additive on idle, before lip sync)
-        // These are Apple animator-tuned expression presets that add
-        // semantic expression (happy/thinking/surprised) on top of idle.
-        poseBlender.update(dt: 1.0 / 60.0)  // ~60fps
+        poseBlender.update(dt: 1.0 / 60.0)
         let poseBS = poseBlender.blendshapes()
         for (key, value) in poseBS {
-            // Additive blend: pose values scale the existing idle value up
-            // For mouth shapes, use lower weight to not fight lip sync
+            // Skip mouth shapes entirely when lip sync is active
+            if lipSyncActive && Self.mouthBlendshapes.contains(key) { continue }
             let weight: Float = Self.mouthBlendshapes.contains(key) ? 0.3 : 0.6
             merged[key] = (merged[key] ?? 0) + value * weight
         }
-        
+
         // Layer 2: Lip sync (mouth region)
-        // Research (Filmic Worlds): ARKit blendshapes are a SYSTEM, not independent.
         // When lip sync is active, mouth-region idle values should be suppressed,
         // but emotion-driven mouth shapes (smile, frown) should BLEND, not override.
-        let lipSyncActive = !lipSyncBlendshapes.isEmpty
         for (key, value) in lipSyncBlendshapes {
             if Self.mouthBlendshapes.contains(key) {
                 if Self.emotionMouthBlendshapes.contains(key) {
@@ -151,8 +167,9 @@ public class AvatarAnimationMixer {
     
     /// Update the idle animator's speaking state and audio energy.
     /// Call this from your audio pipeline.
-    public func updateSpeakingState(isSpeaking: Bool, audioEnergy: Float = 0) {
-        idleAnimator?.isSpeaking = isSpeaking
+    public func updateSpeakingState(isSpeaking speaking: Bool, audioEnergy: Float = 0) {
+        self.isSpeaking = speaking
+        idleAnimator?.isSpeaking = speaking
         idleAnimator?.audioEnergy = audioEnergy
     }
     

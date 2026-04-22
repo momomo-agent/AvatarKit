@@ -1,6 +1,9 @@
 import Foundation
 import AVFoundation
 import Accelerate
+import os.log
+
+private let lsLog = OSLog(subsystem: "com.momomo.avatarkit", category: "lipsync")
 
 // MARK: - Viseme Definition
 
@@ -198,7 +201,7 @@ public class AvatarLipSync {
     
     /// Smoothing factor for blendshape transitions (0 = instant, 1 = no change).
     /// 0.3-0.5 gives natural-looking mouth movement.
-    public var smoothing: Float = 0.35
+    public var smoothing: Float = 0.6
     
     /// Coarticulation strength (0 = none, 1 = full anticipatory blending).
     /// Real speech has overlapping mouth shapes — the mouth starts forming
@@ -231,9 +234,20 @@ public class AvatarLipSync {
     private var fftSetup: vDSP_DFT_Setup?
     private let fftSize: Int = 512
     private var magnitudes: [Float] = []
-    private var currentAudioViseme: Viseme = .silence
-    private var audioAmplitude: Float = 0
-    
+
+    // Thread-safe audio analysis results (written on audio thread, read on main)
+    private let audioLock = NSLock()
+    private var _currentAudioViseme: Viseme = .silence
+    private var _audioAmplitude: Float = 0
+
+    private var currentAudioViseme: Viseme {
+        get { audioLock.lock(); defer { audioLock.unlock() }; return _currentAudioViseme }
+        set { audioLock.lock(); _currentAudioViseme = newValue; audioLock.unlock() }
+    }
+    public var audioAmplitude: Float {
+        get { audioLock.lock(); defer { audioLock.unlock() }; return _audioAmplitude }
+        set { audioLock.lock(); _audioAmplitude = newValue; audioLock.unlock() }
+    }
     // MARK: - Init
     
     public init() {
@@ -350,8 +364,12 @@ public class AvatarLipSync {
             smoothed[key] = current + (target - current) * (1.0 - smoothing)
         }
         
-        // Remove near-zero values
-        smoothed = smoothed.filter { $0.value > 0.001 }
+        // During active audio, never filter out keys — let smoothing handle decay.
+        // This prevents lip=0 flicker when audio tap has momentary silence.
+        // Only filter when truly stopped (no audio engine).
+        if audioEngine == nil {
+            smoothed = smoothed.filter { $0.value > 0.001 }
+        }
         
         currentBlendshapes = smoothed
         onFrame?(smoothed)
@@ -421,22 +439,30 @@ public class AvatarLipSync {
     
     // MARK: - Audio Analysis
     
+    private var tapDebugCount = 0
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData?[0],
               let setup = fftSetup else { return }
-        
+
         let frameCount = Int(buffer.frameLength)
         let count = min(frameCount, fftSize)
-        
+
         // Calculate RMS amplitude
         var rms: Float = 0
         vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(count))
         audioAmplitude = rms
         onAmplitude?(rms)
+
+        tapDebugCount += 1
+        if tapDebugCount % 30 == 0 {
+            os_log(.default, log: lsLog, "[LS-TAP] rms=%{public}.4f viseme=%{public}@ frames=%{public}d", rms, "\(currentAudioViseme)", frameCount)
+        }
         
-        // Skip FFT if too quiet (silence threshold)
+        // Skip FFT if too quiet — but DON'T set silence immediately.
+        // Let _tick()'s smoothing handle the fade-out naturally.
+        // This prevents jarring silence→viseme→silence flicker when
+        // audio tap buffers arrive at ~10Hz but displayLink runs at 60Hz.
         guard rms > 0.01 else {
-            currentAudioViseme = .silence
             return
         }
         
@@ -523,12 +549,9 @@ public class AvatarLipSync {
     }
     
     private func evaluateAudio() -> [String: Float] {
-        guard audioAmplitude > 0.01 else {
-            return Viseme.silence.blendshapes
-        }
-        
-        // Scale blendshapes by amplitude (louder = more exaggerated)
-        let amplitudeScale = min(audioAmplitude * 5.0, 1.5) // Boost quiet speech, cap loud
+        // Use amplitude to scale the current viseme — when quiet, values naturally go to 0
+        // via the amplitude scale, and smoothing handles the transition
+        let amplitudeScale = min(audioAmplitude * 5.0, 1.5)
         var blendshapes = currentAudioViseme.blendshapes
         for (key, value) in blendshapes {
             blendshapes[key] = value * amplitudeScale
