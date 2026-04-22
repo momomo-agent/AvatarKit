@@ -104,6 +104,7 @@ public class AvatarBehaviorEngine {
     
     public init() {
         lipSync = AvatarLipSync()
+        lipSync.externallyDriven = true  // We drive it from our DisplayLink
         idleAnimator = AvatarIdleAnimator()
         gazeController = AvatarGazeController()
         headGesture = AvatarHeadGesture()
@@ -133,8 +134,8 @@ public class AvatarBehaviorEngine {
             var merged = tracking
             
             // Tick gaze and gesture from the animation frame (single driver)
-            self.gazeController.tick()
-            self.headGesture.tick()
+            self.gazeController.externalTick()
+            self.headGesture.externalTick()
             
             // Add gaze eye blendshapes
             for (key, value) in self.gazeEyeBlendshapes {
@@ -173,17 +174,14 @@ public class AvatarBehaviorEngine {
         let now = CACurrentMediaTime()
         lastTime = now
         stateEntryTime = now
-        
-        idleAnimator.start()
-        gazeController.start()
-        headGesture.start()
-        
-        // Single DisplayLink for state logic (10fps is enough for state checks)
-        // All animation is driven by IdleAnimator's 60fps DisplayLink
+
+        // Do NOT call subsystem start() — they would create their own DisplayLinks.
+        // Instead, we drive them via externalTick() from our single DisplayLink.
+
         displayLink = CADisplayLink(target: self, selector: #selector(tick))
-        displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 5, maximum: 15, preferred: 10)
+        displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         displayLink?.add(to: .main, forMode: .common)
-        
+
         enterState(.idle)
     }
     
@@ -191,9 +189,7 @@ public class AvatarBehaviorEngine {
         displayLink?.invalidate()
         displayLink = nil
         lipSync.stop()
-        idleAnimator.stop()
-        gazeController.stop()
-        headGesture.stop()
+        // Subsystems don't have their own DisplayLinks — nothing to stop.
     }
     
     public var isRunning: Bool { displayLink != nil }
@@ -312,7 +308,13 @@ public class AvatarBehaviorEngine {
     @objc private func tick() {
         let now = CACurrentMediaTime()
         stateTime = now - stateEntryTime
-        
+
+        // Drive all subsystems from this single DisplayLink
+        idleAnimator.externalTick()
+        gazeController.externalTick()
+        headGesture.externalTick()
+        lipSync.externalTick()
+
         switch state {
         case .idle:
             tickIdle(now: now)

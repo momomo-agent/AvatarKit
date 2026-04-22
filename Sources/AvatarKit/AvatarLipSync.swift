@@ -306,14 +306,27 @@ public class AvatarLipSync {
     }
     
     // MARK: - Display Link
-    
+
+    /// Whether this instance is being driven externally (no own DisplayLink).
+    public var externallyDriven = false
+
     private func startDisplayLink() {
+        guard !externallyDriven else { return }
         displayLink = CADisplayLink(target: self, selector: #selector(tick))
         displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         displayLink?.add(to: .main, forMode: .common)
     }
-    
+
+    /// Call this from an external display link instead of using the internal one.
+    public func externalTick() {
+        _tick()
+    }
+
     @objc private func tick() {
+        _tick()
+    }
+
+    private func _tick() {
         let elapsed = CACurrentMediaTime() - startTime
         
         let targetBlendshapes: [String: Float]

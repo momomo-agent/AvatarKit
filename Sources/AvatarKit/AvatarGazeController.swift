@@ -133,10 +133,22 @@ public class AvatarGazeController {
         isAverting = false
     }
     
+    // MARK: - External Tick (driven by BehaviorEngine's single DisplayLink)
+
+    /// Call this from an external display link instead of using start()/stop().
+    public func externalTick() {
+        _tick()
+    }
+
     // MARK: - Main Loop
-    
-    @objc public func tick() {
+
+    @objc private func tick() {
+        _tick()
+    }
+
+    private func _tick() {
         let now = CACurrentMediaTime()
+        if lastTime == 0 { lastTime = now }
         let dt = Float(now - lastTime)
         lastTime = now
         guard dt > 0, dt < 0.5 else { return }

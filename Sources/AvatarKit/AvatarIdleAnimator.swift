@@ -131,10 +131,22 @@ public class AvatarIdleAnimator {
     
     deinit { stop() }
     
+    // MARK: - External Tick (driven by BehaviorEngine's single DisplayLink)
+
+    /// Call this from an external display link instead of using start()/stop().
+    public func externalTick() {
+        _tick()
+    }
+
     // MARK: - Main Loop
-    
+
     @objc private func tick() {
+        _tick()
+    }
+
+    private func _tick() {
         let now = CACurrentMediaTime()
+        if startTime == 0 { startTime = now; lastTime = now }
         let dt = Float(now - lastTime)
         lastTime = now
         let elapsed = Float(now - startTime)
