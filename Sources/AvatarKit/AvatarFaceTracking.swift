@@ -34,6 +34,13 @@ public struct AvatarFaceTracking: Sendable {
     /// Head translation (x, y, z) in meters. Only used in `.cameraFull` mode.
     public var headTranslation: SIMD3<Float>
     
+    /// Body (root_JNT) rotation quaternion. Drives whole-character lean/sway.
+    /// Separate from head rotation so bridge can set root_JNT and head_JNT independently.
+    public var bodyRotation: simd_quatf?
+    
+    /// Body (root_JNT) translation. Drives whole-character position (sway, breathing).
+    public var bodyTranslation: SIMD3<Float>?
+    
     /// Which coordinate space this tracking data uses.
     public var coordinateSpace: CoordinateSpace
     
@@ -82,6 +89,8 @@ public struct AvatarFaceTracking: Sendable {
         headRotation: HeadRotation = .zero,
         rawQuaternion: simd_quatf? = nil,
         headTranslation: SIMD3<Float> = .zero,
+        bodyRotation: simd_quatf? = nil,
+        bodyTranslation: SIMD3<Float>? = nil,
         coordinateSpace: CoordinateSpace = .world,
         timestamp: Double = CACurrentMediaTime()
     ) {
@@ -89,6 +98,8 @@ public struct AvatarFaceTracking: Sendable {
         self.headRotation = headRotation
         self.rawQuaternion = rawQuaternion
         self.headTranslation = headTranslation
+        self.bodyRotation = bodyRotation
+        self.bodyTranslation = bodyTranslation
         self.coordinateSpace = coordinateSpace
         self.timestamp = timestamp
     }

@@ -63,7 +63,9 @@ public class AvatarIdleAnimator {
     public var audioPitch: Float = 0
     
     /// Callback every frame.
-    public var onFrame: ((_ blendshapes: [String: Float], _ headRotation: simd_quatf, _ headTranslation: SIMD3<Float>) -> Void)?
+    /// Parameters: blendshapes, headRotation, headTranslation, bodyRotation, bodyTranslation
+    /// Body = root_JNT (whole character position/lean), Head = head_JNT (on top of body)
+    public var onFrame: ((_ blendshapes: [String: Float], _ headRotation: simd_quatf, _ headTranslation: SIMD3<Float>, _ bodyRotation: simd_quatf, _ bodyTranslation: SIMD3<Float>) -> Void)?
     
     // MARK: - Internal State
     
@@ -718,12 +720,22 @@ public class AvatarIdleAnimator {
         }
         
         // ═══════════════════════════════════════════
-        // Final: Derive translation from rotation (neck pivot model)
-        // Biomechanics: head rotates around C1/C2 (atlas-axis), which is
-        // at the base of the skull, ~10-12cm below head center.
-        // Translation = pivot + rotation * (-pivot)
-        // This makes the head move naturally in space as a consequence
-        // of rotation, not independently (no "floating head" effect).
+        // Final: Two-layer output (Disney three-layer adapted for head-only rig)
+        //
+        // BODY LAYER (root_JNT):
+        //   Rotation: weight shift lean + breathing lean + speaking forward lean
+        //   Translation: body sway + breathing Y
+        //   This is the "torso" — the whole character moves as a unit
+        //
+        // HEAD LAYER (head_JNT, additive on body):
+        //   Rotation: gaze targets + beat gestures + fidgets + pose drift
+        //   The head rotates RELATIVE to the body, not world space
+        //
+        // Disney insight: "Simply composing layers by masking results in
+        // robotic and uncanny motions, because the dynamics for other body
+        // parts is lost." — We couple them: head motion feeds back into
+        // body lean (secondary action), and body motion feeds into head
+        // (follow-through/drag).
         // ═══════════════════════════════════════════
         if intensity != 1.0 {
             for key in bs.keys { bs[key]! *= intensity }
@@ -731,35 +743,49 @@ public class AvatarIdleAnimator {
         }
         
         let rad = Float.pi / 180.0
-        let q = simd_quatf(angle: headYaw * rad, axis: SIMD3(0, 1, 0))
-              * simd_quatf(angle: headPitch * rad, axis: SIMD3(1, 0, 0))
-              * simd_quatf(angle: headRoll * rad, axis: SIMD3(0, 0, 1))
         
-        // Neck pivot in avatar scene units (face tracking uses scale 50/20/100)
-        let neckPivot = SIMD3<Float>(0, -0.5, 0)
+        // --- Body rotation ---
+        // Weight shift: lean left/right (roll) + slight yaw
+        // Breathing: slight pitch oscillation
+        // Speaking: forward lean (pitch)
+        // Head motion coupling: big head turns pull body slightly
+        var bodyYaw: Float = 0
+        var bodyPitch: Float = 0
+        var bodyRoll: Float = 0
         
-        // Rotation around pivot: T = pivot + R * (-pivot)
-        // This gives the displacement of the head center due to rotation
-        let rotatedPivot = q.act(-neckPivot)
-        var derivedTranslation = neckPivot + rotatedPivot
+        // Weight shift drives body lean (primary body motion)
+        bodyRoll = sin(weightShiftPhase) * 3.0 * intensity   // visible lean
+        bodyYaw = sin(weightShiftPhase) * 1.5 * intensity    // slight turn with lean
         
-        // ═══════════════════════════════════════════
-        // Body Sway: organic whole-body drift (like a person sitting/standing)
-        // This is INDEPENDENT of head rotation — it's the torso moving.
-        // Two sine waves per axis at different frequencies = pseudo-Perlin.
-        // Disney: living things are never perfectly still.
-        // ═══════════════════════════════════════════
-        // Body sway: adds to body position, head follows with same drag
+        // Breathing drives body pitch
+        bodyPitch = headDragZ * 0.5 * intensity  // body leans with breath
+        
+        // Speaking forward lean
+        if isSpeaking {
+            bodyPitch += 2.0 * intensity  // engaged forward lean
+        } else if isListening {
+            bodyPitch += 3.0 * intensity  // attentive forward lean
+        }
+        
+        // Secondary action: head turns pull body (delayed, reduced)
+        bodyYaw += recentHeadYawDelta * 0.15
+        bodyPitch += recentHeadPitchDelta * 0.1
+        
+        let bodyQ = simd_quatf(angle: bodyYaw * rad, axis: SIMD3(0, 1, 0))
+                  * simd_quatf(angle: bodyPitch * rad, axis: SIMD3(1, 0, 0))
+                  * simd_quatf(angle: bodyRoll * rad, axis: SIMD3(0, 0, 1))
+        
+        // --- Body translation ---
+        // Sway (organic drift) + breathing Y
         let swaySpeed: Float = isSpeaking ? 0.4 : 0.2
         bodySwayPhase += SIMD3(dt * swaySpeed * 0.7, dt * swaySpeed * 0.5, dt * swaySpeed * 0.9)
         bodySwayPhase2 += SIMD3(dt * swaySpeed * 1.3, dt * swaySpeed * 1.1, dt * swaySpeed * 0.6)
         
-        // Sway in avatar scene units (X scale=50, Z scale=100)
-        let swayAmp: Float = isSpeaking ? 0.3 : 0.2
+        let swayAmp: Float = isSpeaking ? 0.5 : 0.3
         let sway1 = SIMD3<Float>(
             sin(bodySwayPhase.x) * swayAmp,
             0,
-            sin(bodySwayPhase.z) * swayAmp * 2.0   // Z needs more (scale 100)
+            sin(bodySwayPhase.z) * swayAmp * 2.0
         )
         let sway2 = SIMD3<Float>(
             sin(bodySwayPhase2.x) * swayAmp * 0.4,
@@ -767,12 +793,26 @@ public class AvatarIdleAnimator {
             sin(bodySwayPhase2.z) * swayAmp * 1.0
         )
         
-        // Final translation: rotation-derived + body Y/Z (with drag) + sway
-        derivedTranslation += (sway1 + sway2) * intensity
-        derivedTranslation.y += headDragY * intensity
-        derivedTranslation.z += headDragZ * intensity
+        var bodyTranslation = (sway1 + sway2) * intensity
+        bodyTranslation.y += headDragY * intensity  // breathing Y
+        bodyTranslation.z += headDragZ * intensity  // breathing Z
         
-        onFrame?(bs, q, derivedTranslation)
+        // --- Head rotation (relative to body) ---
+        // Remove body contribution from head angles so head is additive
+        let headOnlyYaw = headYaw - bodyYaw
+        let headOnlyPitch = headPitch - bodyPitch
+        let headOnlyRoll = headRoll - bodyRoll
+        
+        let headQ = simd_quatf(angle: headOnlyYaw * rad, axis: SIMD3(0, 1, 0))
+                  * simd_quatf(angle: headOnlyPitch * rad, axis: SIMD3(1, 0, 0))
+                  * simd_quatf(angle: headOnlyRoll * rad, axis: SIMD3(0, 0, 1))
+        
+        // Head translation: neck pivot model (rotation-derived displacement)
+        let neckPivot = SIMD3<Float>(0, -0.5, 0)
+        let rotatedPivot = headQ.act(-neckPivot)
+        let headTranslation = neckPivot + rotatedPivot
+        
+        onFrame?(bs, headQ, headTranslation, bodyQ, bodyTranslation)
     }
     
     // MARK: - Blink System

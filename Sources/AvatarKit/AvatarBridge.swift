@@ -297,15 +297,30 @@ public final class AvatarBridge {
             }
         }
         
-        // Set orientation on neckNode (head_JNT) — this is where Apple sets it
-        if let q = tracking.rawQuaternion {
-            setNeckOrientation(q)
+        // Set orientation on neckNode (head_JNT)
+        // If body rotation exists, compose: world_head = body * head
+        // Otherwise just use rawQuaternion directly
+        if let headQ = tracking.rawQuaternion {
+            if let bodyQ = tracking.bodyRotation {
+                // head_JNT gets body rotation * head-relative rotation
+                // This makes the head follow the body AND add its own motion
+                setNeckOrientation(bodyQ * headQ)
+            } else {
+                setNeckOrientation(headQ)
+            }
         }
         
-        // Set position on rootJointNode (root_JNT) for spatial movement
-        let t = tracking.headTranslation
-        if t.x != 0 || t.y != 0 || t.z != 0 {
-            setRootJointPosition(t)
+        // Set position on rootJointNode (root_JNT)
+        // Body translation = sway + breathing (the whole character moves)
+        // Head translation = neck pivot displacement (added on top)
+        if let bodyT = tracking.bodyTranslation {
+            let headT = tracking.headTranslation
+            setRootJointPosition(bodyT + headT)
+        } else {
+            let t = tracking.headTranslation
+            if t.x != 0 || t.y != 0 || t.z != 0 {
+                setRootJointPosition(t)
+            }
         }
     }
     
