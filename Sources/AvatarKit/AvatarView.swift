@@ -5,18 +5,16 @@ import SwiftUI
 /// SwiftUI view that displays an animated Animoji character.
 ///
 /// Uses Apple's private AVTView (VFX-based renderer) for rendering.
-/// On iOS 18+, AvatarKit uses VFXNode/VFXView instead of SceneKit.
+/// AVTView is created lazily when the character is loaded to avoid
+/// VFX render-thread crashes on empty scene graphs.
 ///
 /// Usage:
 /// ```swift
 /// struct ContentView: View {
-///     @State private var bridge = AvatarBridge()
+///     let bridge = AvatarBridge()
 ///
 ///     var body: some View {
 ///         AvatarView(bridge: bridge, character: "cat")
-///             .onAppear {
-///                 bridge.applyPreset(.smile)
-///             }
 ///     }
 /// }
 /// ```
@@ -37,31 +35,55 @@ public struct AvatarView: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> UIView {
-        guard let view = bridge.avtView else {
-            let fallback = UIView()
-            fallback.backgroundColor = backgroundColor
-            return fallback
-        }
-        
-        view.backgroundColor = backgroundColor
-        return view
+        // Use a container view. AVTView is added as a subview after load().
+        let container = AvatarContainerUIView()
+        container.backgroundColor = backgroundColor
+        container.bridge = bridge
+        return container
     }
     
     public func updateUIView(_ uiView: UIView, context: Context) {
         uiView.backgroundColor = backgroundColor
         
-        // Load avatar once the view is in the hierarchy (has a window).
-        // Loading in makeUIView can crash VFX because the render loop
-        // starts before Metal shaders finish compiling.
+        guard let container = uiView as? AvatarContainerUIView else { return }
+        
+        // Load character if needed
         if bridge.characterID != character {
-            if uiView.window != nil {
-                bridge.load(character)
-            } else {
-                // View not yet in hierarchy — defer to next run loop
-                DispatchQueue.main.async { [bridge, character] in
-                    bridge.load(character)
-                }
-            }
+            bridge.load(character)
+        }
+        
+        // Embed AVTView into container if not already done
+        container.embedAVTViewIfNeeded()
+    }
+}
+
+// MARK: - Container UIView
+
+/// Container that hosts the lazily-created AVTView.
+class AvatarContainerUIView: UIView {
+    weak var bridge: AvatarBridge?
+    private var didEmbed = false
+    
+    func embedAVTViewIfNeeded() {
+        guard !didEmbed, let avtView = bridge?.avtView else { return }
+        didEmbed = true
+        
+        avtView.translatesAutoresizingMaskIntoConstraints = false
+        avtView.backgroundColor = backgroundColor
+        addSubview(avtView)
+        NSLayoutConstraint.activate([
+            avtView.topAnchor.constraint(equalTo: topAnchor),
+            avtView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            avtView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            avtView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+    }
+    
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // Try embedding when we get a window (view is in hierarchy)
+        if window != nil {
+            embedAVTViewIfNeeded()
         }
     }
 }

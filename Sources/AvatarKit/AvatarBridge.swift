@@ -59,73 +59,36 @@ public final class AvatarBridge {
     
     public init() {
         Self.loadFrameworks()
-        createAVTView()
+        // AVTView is created lazily in load() to avoid VFX crash.
+        // VFX starts its render loop immediately on AVTView.init(),
+        // and crashes with NSRangeException if the scene graph is empty.
+        // By creating AVTView only after the animoji is ready, we ensure
+        // setAvatar: is called before the first render frame.
     }
     
     // MARK: - AVTView Setup
     
-    /// Whether rendering should be suppressed (during initial load).
-    private var suppressRendering = true
-    
-    private func createAVTView() {
+    private func createAVTView(withAvatar avatar: AnyObject) {
         guard let avtViewCls = NSClassFromString("AVTView") as? UIView.Type else { return }
         
-        // Swizzle _avtUpdateRendersContinuously to prevent VFX from
-        // force-enabling continuous rendering before avatar is loaded.
-        // VFX crashes with NSRangeException on the render thread when
-        // the scene graph is empty but rendering is active.
-        swizzleRendersContinuously(avtViewCls)
+        let view = avtViewCls.init(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         
-        var view: UIView?
-        var exception: NSException?
-        AVTTryPerform({
-            let v = avtViewCls.init(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
-            
-            // Disable face tracking — we drive expressions manually
-            let sel = NSSelectorFromString("setEnableFaceTracking:")
-            if v.responds(to: sel),
-               let imp = class_getMethodImplementation(type(of: v), sel) {
-                typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
-                unsafeBitCast(imp, to: F.self)(v, sel, false)
-            }
-            
-            view = v
-        }, &exception)
+        // Set avatar IMMEDIATELY — before VFX render loop gets a chance to
+        // access the empty scene graph on the next frame.
+        let setAvatarSel = NSSelectorFromString("setAvatar:")
+        if view.responds(to: setAvatarSel) {
+            view.perform(setAvatarSel, with: avatar)
+        }
         
-        if let exception {
-            print("[AvatarBridge] AVTView init exception (recovered): \(exception.name) - \(exception.reason ?? "")")
+        // Disable face tracking — we drive expressions manually
+        let sel = NSSelectorFromString("setEnableFaceTracking:")
+        if view.responds(to: sel),
+           let imp = class_getMethodImplementation(type(of: view), sel) {
+            typealias F = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(imp, to: F.self)(view, sel, false)
         }
         
         self.avtView = view
-    }
-    
-    /// Original IMP of -[AVTView _avtUpdateRendersContinuously]
-    private static var originalUpdateRendersContinuously: IMP?
-    /// Whether swizzle has been applied
-    private static var didSwizzle = false
-    /// Global flag: allow rendering (set to true after avatar is loaded)
-    static var allowRendering = false
-    
-    private func swizzleRendersContinuously(_ cls: UIView.Type) {
-        guard !Self.didSwizzle else { return }
-        Self.didSwizzle = true
-        
-        let sel = NSSelectorFromString("_avtUpdateRendersContinuously")
-        guard let method = class_getInstanceMethod(cls, sel) else { return }
-        
-        Self.originalUpdateRendersContinuously = method_getImplementation(method)
-        
-        // Replace with a version that checks our flag
-        let block: @convention(block) (AnyObject) -> Void = { obj in
-            guard AvatarBridge.allowRendering else { return }
-            // Call original
-            if let orig = AvatarBridge.originalUpdateRendersContinuously {
-                typealias F = @convention(c) (AnyObject, Selector) -> Void
-                unsafeBitCast(orig, to: F.self)(obj, sel)
-            }
-        }
-        let imp = imp_implementationWithBlock(block)
-        method_setImplementation(method, imp)
     }
     
     // MARK: - Loading
@@ -150,30 +113,17 @@ public final class AvatarBridge {
         self.animoji = obj
         self.characterID = characterID
         
-        // Set avatar on AVTView (wrapped in exception handler —
-        // VFX can crash during initial render while Metal shaders compile)
-        if let view = avtView {
-            var exception: NSException?
-            AVTTryPerform({
-                let setAvatarSel = NSSelectorFromString("setAvatar:")
-                if view.responds(to: setAvatarSel) {
-                    view.perform(setAvatarSel, with: obj)
-                }
-            }, &exception)
-            
-            if let exception {
-                print("[AvatarBridge] setAvatar: exception (recovered): \(exception.name) - \(exception.reason ?? "")")
-            }
-            
-            // Allow rendering now that avatar scene graph is built.
-            // Delay by 2 frames to let VFX finish internal setup.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                Self.allowRendering = true
-                // Trigger the original _avtUpdateRendersContinuously
-                let sel = NSSelectorFromString("_avtUpdateRendersContinuously")
-                if view.responds(to: sel) {
-                    view.perform(sel)
-                }
+        // Create AVTView lazily (first load) or update existing
+        if avtView == nil {
+            // First load: create AVTView with avatar already set
+            // This prevents VFX crash — the scene graph is populated
+            // before the render loop starts.
+            createAVTView(withAvatar: obj)
+        } else if let view = avtView {
+            // Subsequent loads: just update the avatar
+            let setAvatarSel = NSSelectorFromString("setAvatar:")
+            if view.responds(to: setAvatarSel) {
+                view.perform(setAvatarSel, with: obj)
             }
         }
         
