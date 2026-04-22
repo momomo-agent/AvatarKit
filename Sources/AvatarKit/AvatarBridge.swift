@@ -301,6 +301,12 @@ public final class AvatarBridge {
         if let q = tracking.rawQuaternion {
             setNeckOrientation(q)
         }
+        
+        // Set position on rootJointNode (root_JNT) for spatial movement
+        let t = tracking.headTranslation
+        if t.x != 0 || t.y != 0 || t.z != 0 {
+            setRootJointPosition(t)
+        }
     }
     
     /// Apply a preset expression.
