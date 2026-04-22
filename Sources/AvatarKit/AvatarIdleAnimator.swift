@@ -49,7 +49,7 @@ public class AvatarIdleAnimator {
     public var audioPitch: Float = 0
     
     /// Callback every frame.
-    public var onFrame: ((_ blendshapes: [String: Float], _ headRotation: simd_quatf) -> Void)?
+    public var onFrame: ((_ blendshapes: [String: Float], _ headRotation: simd_quatf, _ headTranslation: SIMD3<Float>) -> Void)?
     
     // MARK: - Internal State
     
@@ -104,6 +104,19 @@ public class AvatarIdleAnimator {
     // Left side shows ~5-10% more emotional intensity (research: right hemisphere → left face)
     private let leftEmotionBias: Float = 1.08
     
+    // --- Weight Shift (Disney: natural sway, 4-8s cycle) ---
+    private var weightShiftNoise = PerlinOctave()
+    private var weightShiftPhase: Float = 0
+    
+    // --- Pose Variation (fidgets + pose changes every 15-30s) ---
+    private var nextFidgetTime: TimeInterval = 0
+    private var fidgetPhase: Float = -1
+    private var fidgetType: Int = 0
+    private var fidgetBS: [String: Float] = [:]
+    
+    // --- Head Translation (spatial movement, not just rotation) ---
+    private var headTranslationNoise = (x: PerlinOctave(), y: PerlinOctave(), z: PerlinOctave())
+    
     // MARK: - Init / Lifecycle
     
     public init() {
@@ -111,6 +124,7 @@ public class AvatarIdleAnimator {
         scheduleNextSaccade(from: 0)
         nextMicroExpressionTime = Double.random(in: 3...8)
         nextSwallowTime = Double.random(in: 60...180)
+        nextFidgetTime = Double.random(in: 15...30)
     }
     
     public func start() {
@@ -164,6 +178,9 @@ public class AvatarIdleAnimator {
         var headPitch: Float = 0
         var headYaw: Float = 0
         var headRoll: Float = 0
+        var headTx: Float = 0  // translation X (left/right)
+        var headTy: Float = 0  // translation Y (up/down)
+        var headTz: Float = 0  // translation Z (forward/back)
         
         // ═══════════════════════════════════════════
         // Layer 1: Breathing
@@ -237,16 +254,41 @@ public class AvatarIdleAnimator {
             let speed: Float = isSpeaking ? 0.6 : (isListening ? 0.4 : 0.3)
             let amplitude: Float
             if isSpeaking {
-                amplitude = 1.5 + smoothedEnergy * 3.0
+                amplitude = 3.0 + smoothedEnergy * 5.0  // much more expressive when speaking
             } else if isListening {
-                amplitude = 1.0 // slightly more than idle, less than speaking
+                amplitude = 2.0
             } else {
-                amplitude = 0.8
+                amplitude = 2.5  // idle: ±2-5° (research: real humans)
             }
             
             headYaw  += headNoiseX.sample(t: elapsed * speed) * amplitude
             headPitch += headNoiseY.sample(t: elapsed * speed * 0.7) * amplitude * 0.6
             headRoll += headNoiseZ.sample(t: elapsed * speed * 0.5) * amplitude * 0.3
+            
+            // ═══════════════════════════════════════════
+            // Layer 4b: Head Translation (spatial movement)
+            // Disney: characters move IN SPACE, not just rotate
+            // Weight shift causes head to drift laterally
+            // Breathing causes slight vertical bob
+            // ═══════════════════════════════════════════
+            let txSpeed: Float = isSpeaking ? 0.4 : 0.2
+            let txAmp: Float = isSpeaking ? 0.008 : 0.005  // meters
+            headTx += headTranslationNoise.x.sample(t: elapsed * txSpeed) * txAmp
+            headTy += sin(breathPhase) * 0.002  // breathing bob
+            headTy += headTranslationNoise.y.sample(t: elapsed * txSpeed * 0.5) * txAmp * 0.3
+            headTz += headTranslationNoise.z.sample(t: elapsed * txSpeed * 0.7) * txAmp * 0.5
+            
+            // ═══════════════════════════════════════════
+            // Layer 4c: Weight Shift (Disney: natural sway)
+            // 4-8 second cycle, lateral drift + slight roll
+            // MoCap Online: "subtle weight transfer foot to foot"
+            // ═══════════════════════════════════════════
+            weightShiftPhase += dt * 2 * .pi / 6.0  // ~6 second cycle
+            if weightShiftPhase > 2 * .pi { weightShiftPhase -= 2 * .pi }
+            let swayAmount = sin(weightShiftPhase) * 0.4 + weightShiftNoise.sample(t: elapsed * 0.15) * 0.2
+            headTx += swayAmount * 0.004  // lateral drift from weight shift
+            headRoll += swayAmount * 0.8   // body roll follows weight shift
+            headYaw += swayAmount * 0.3    // slight yaw with sway
             
             // Prosody-driven: energy peaks → nod down
             if isSpeaking && smoothedEnergy > 0.15 {
@@ -339,6 +381,19 @@ public class AvatarIdleAnimator {
                 bs["mouthPressLeft"] = (bs["mouthPressLeft"] ?? 0) + 0.08
                 bs["mouthPressRight"] = (bs["mouthPressRight"] ?? 0) + 0.08
             }
+            // Speaking head translation: lean forward slightly when emphasizing
+            if smoothedEnergy > 0.2 {
+                headTz -= (smoothedEnergy - 0.2) * 0.01  // lean forward on emphasis
+            }
+        }
+        
+        // ═══════════════════════════════════════════
+        // Layer 9b: Fidgets (Disney: break monotony)
+        // MoCap Online: "short one-shot animations every 30-60 seconds"
+        // Examples: shoulder roll, head scratch, look around, stretch
+        // ═══════════════════════════════════════════
+        if !isSpeaking {
+            updateFidget(now: now, dt: dt, bs: &bs, headYaw: &headYaw, headPitch: &headPitch, headRoll: &headRoll, headTx: &headTx)
         }
         
         // ═══════════════════════════════════════════
@@ -368,6 +423,9 @@ public class AvatarIdleAnimator {
             headYaw *= intensity
             headPitch *= intensity
             headRoll *= intensity
+            headTx *= intensity
+            headTy *= intensity
+            headTz *= intensity
         }
         
         // Convert to quaternion
@@ -376,7 +434,7 @@ public class AvatarIdleAnimator {
         let qYaw   = simd_quatf(angle: headYaw * rad, axis: SIMD3(0, 1, 0))
         let qRoll  = simd_quatf(angle: headRoll * rad, axis: SIMD3(0, 0, 1))
         
-        onFrame?(bs, qYaw * qPitch * qRoll)
+        onFrame?(bs, qYaw * qPitch * qRoll, SIMD3(headTx, headTy, headTz))
     }
     
     // MARK: - Blink System
@@ -641,6 +699,99 @@ public class AvatarIdleAnimator {
     private func updateMood(dt: Float) {
         if moodTransitionProgress < 1.0 {
             moodTransitionProgress = min(1.0, moodTransitionProgress + dt * 2.0)
+        }
+    }
+    
+    // MARK: - Fidget System (Disney: break monotony)
+    
+    private func updateFidget(now: TimeInterval, dt: Float,
+                              bs: inout [String: Float],
+                              headYaw: inout Float, headPitch: inout Float,
+                              headRoll: inout Float, headTx: inout Float) {
+        if fidgetPhase < 0 {
+            if now >= nextFidgetTime {
+                fidgetPhase = 0
+                fidgetType = Int.random(in: 0...6)
+                nextFidgetTime = now + Double.random(in: 20...45)
+            }
+            return
+        }
+        
+        let duration: Float
+        switch fidgetType {
+        case 0: duration = 1.5  // look to side
+        case 1: duration = 1.2  // shoulder roll (head tilt)
+        case 2: duration = 2.0  // big head turn and back
+        case 3: duration = 1.0  // quick glance up
+        case 4: duration = 1.8  // lean back then forward
+        case 5: duration = 1.5  // head tilt with brow
+        default: duration = 1.3 // jaw stretch
+        }
+        
+        fidgetPhase += dt / duration
+        if fidgetPhase >= 1.0 {
+            fidgetPhase = -1
+            return
+        }
+        
+        let p = fidgetPhase
+        // Bell curve envelope: smooth in, peak at 0.4, smooth out
+        let envelope = sin(p * .pi) * (p < 0.4 ? easeOut(p / 0.4) : 1.0)
+        
+        switch fidgetType {
+        case 0: // Look to one side — big yaw turn
+            let dir: Float = Bool.random() ? 1 : -1
+            headYaw += dir * envelope * 8.0
+            headTx += dir * envelope * 0.006
+            // Eyes lead the head (overlapping action)
+            let eyeLead = sin(min(p * 1.3, 1.0) * .pi)
+            if dir > 0 {
+                bs["eyeLookOutRight"] = (bs["eyeLookOutRight"] ?? 0) + eyeLead * 0.3
+                bs["eyeLookInLeft"] = (bs["eyeLookInLeft"] ?? 0) + eyeLead * 0.3
+            } else {
+                bs["eyeLookOutLeft"] = (bs["eyeLookOutLeft"] ?? 0) + eyeLead * 0.3
+                bs["eyeLookInRight"] = (bs["eyeLookInRight"] ?? 0) + eyeLead * 0.3
+            }
+            
+        case 1: // Shoulder roll — head tilts, slight roll
+            let dir: Float = Bool.random() ? 1 : -1
+            headRoll += dir * envelope * 5.0
+            headPitch += envelope * 2.0
+            headTx += dir * envelope * 0.004
+            
+        case 2: // Big head turn and back — like checking something
+            let dir: Float = Bool.random() ? 1 : -1
+            // Anticipation: slight opposite move first
+            let antic = p < 0.15 ? -sin(p / 0.15 * .pi) * 0.3 : 0.0
+            headYaw += dir * (envelope * 12.0 + antic * 3.0)
+            headPitch -= envelope * 3.0  // chin dips slightly during turn
+            headTx += dir * envelope * 0.008
+            
+        case 3: // Quick glance up
+            headPitch -= envelope * 6.0
+            bs["eyeLookUpLeft"] = (bs["eyeLookUpLeft"] ?? 0) + envelope * 0.4
+            bs["eyeLookUpRight"] = (bs["eyeLookUpRight"] ?? 0) + envelope * 0.4
+            bs["browOuterUpLeft"] = (bs["browOuterUpLeft"] ?? 0) + envelope * 0.15
+            bs["browOuterUpRight"] = (bs["browOuterUpRight"] ?? 0) + envelope * 0.15
+            
+        case 4: // Lean back then forward
+            let leanCurve = sin(p * 2 * .pi)  // full cycle: back then forward
+            headPitch += leanCurve * 4.0
+            headTx += -leanCurve * 0.003  // slight Z shift (mapped to X for now)
+            
+        case 5: // Head tilt with curious brow
+            let dir: Float = Bool.random() ? 1 : -1
+            headRoll += dir * envelope * 7.0
+            headPitch -= envelope * 2.0
+            bs["browInnerUp"] = (bs["browInnerUp"] ?? 0) + envelope * 0.2
+            let browSide = dir > 0 ? "browOuterUpRight" : "browOuterUpLeft"
+            bs[browSide] = (bs[browSide] ?? 0) + envelope * 0.15
+            
+        default: // Jaw stretch / mouth movement
+            bs["jawOpen"] = (bs["jawOpen"] ?? 0) + envelope * 0.15
+            bs["mouthStretchLeft"] = (bs["mouthStretchLeft"] ?? 0) + envelope * 0.1
+            bs["mouthStretchRight"] = (bs["mouthStretchRight"] ?? 0) + envelope * 0.1
+            headPitch += envelope * 2.0  // head tilts back slightly
         }
     }
     

@@ -38,6 +38,7 @@ public class AvatarAnimationMixer {
     private var lipSyncBlendshapes: [String: Float] = [:]
     private var idleBlendshapes: [String: Float] = [:]
     private var idleHeadRotation: simd_quatf = .init(ix: 0, iy: 0, iz: 0, r: 1)
+    private var idleHeadTranslation: SIMD3<Float> = .zero
 
     // MARK: - Init
 
@@ -50,9 +51,10 @@ public class AvatarAnimationMixer {
             self?.mix()
         }
 
-        idleAnimator?.onFrame = { [weak self] blendshapes, headRotation in
+        idleAnimator?.onFrame = { [weak self] blendshapes, headRotation, headTranslation in
             self?.idleBlendshapes = blendshapes
             self?.idleHeadRotation = headRotation
+            self?.idleHeadTranslation = headTranslation
             self?.mix()
         }
     }
@@ -115,7 +117,8 @@ public class AvatarAnimationMixer {
 
         let tracking = AvatarFaceTracking(
             blendshapes: merged,
-            rawQuaternion: q
+            rawQuaternion: q,
+            headTranslation: idleHeadTranslation
         )
         
         currentTracking = tracking
