@@ -67,14 +67,33 @@ public class AvatarAnimationMixer {
             merged[key] = value
         }
         
-        // Layer 2: Lip sync (mouth region overrides idle, others additive)
+        // Layer 2: Lip sync (mouth region)
+        // Research (Filmic Worlds): ARKit blendshapes are a SYSTEM, not independent.
+        // When lip sync is active, mouth-region idle values should be suppressed,
+        // but emotion-driven mouth shapes (smile, frown) should BLEND, not override.
+        let lipSyncActive = !lipSyncBlendshapes.isEmpty
         for (key, value) in lipSyncBlendshapes {
             if Self.mouthBlendshapes.contains(key) {
-                // Mouth: lip sync takes priority
-                merged[key] = value
+                if Self.emotionMouthBlendshapes.contains(key) {
+                    // Emotion-linked mouth shapes: weighted blend
+                    // Lip sync gets 70%, emotion gets 30% (so you can smile while talking)
+                    let idleValue = merged[key] ?? 0
+                    merged[key] = value * 0.7 + idleValue * 0.3
+                } else {
+                    // Pure articulation shapes: lip sync wins
+                    merged[key] = value
+                }
             } else {
-                // Non-mouth: additive
                 merged[key] = (merged[key] ?? 0) + value
+            }
+        }
+        
+        // Suppress idle mouth shapes that conflict with active lip sync
+        if lipSyncActive {
+            for key in Self.articulationBlendshapes {
+                if lipSyncBlendshapes[key] == nil {
+                    merged[key] = nil // clear idle articulation when lip sync is driving
+                }
             }
         }
         
@@ -133,6 +152,28 @@ public class AvatarAnimationMixer {
         "mouthSmileLeft", "mouthSmileRight",
         "mouthFrownLeft", "mouthFrownRight",
         "mouthDimpleLeft", "mouthDimpleRight",
+        "mouthStretchLeft", "mouthStretchRight",
+        "mouthRollLower", "mouthRollUpper",
+        "mouthShrugLower", "mouthShrugUpper",
+        "mouthPressLeft", "mouthPressRight",
+        "mouthLowerDownLeft", "mouthLowerDownRight",
+        "mouthUpperUpLeft", "mouthUpperUpRight",
+    ]
+    
+    /// Mouth shapes driven by emotion (smile, frown).
+    /// These should BLEND with lip sync, not be overridden.
+    /// Research: you can smile while talking — it's additive.
+    private static let emotionMouthBlendshapes: Set<String> = [
+        "mouthSmileLeft", "mouthSmileRight",
+        "mouthFrownLeft", "mouthFrownRight",
+        "mouthDimpleLeft", "mouthDimpleRight",
+    ]
+    
+    /// Pure articulation shapes that should be cleared when lip sync is active.
+    /// These are the shapes that ONLY make sense for speech, not emotion.
+    private static let articulationBlendshapes: Set<String> = [
+        "jawOpen", "jawForward",
+        "mouthClose", "mouthFunnel", "mouthPucker",
         "mouthStretchLeft", "mouthStretchRight",
         "mouthRollLower", "mouthRollUpper",
         "mouthShrugLower", "mouthShrugUpper",

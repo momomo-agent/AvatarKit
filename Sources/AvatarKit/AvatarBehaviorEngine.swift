@@ -211,6 +211,7 @@ public class AvatarBehaviorEngine {
         switch newState {
         case .idle:
             idleAnimator.isSpeaking = false
+            idleAnimator.isListening = false
             gazeController.isListening = false
             gazeController.releaseGaze()
             idleAnimator.setMood(.neutral)
@@ -218,16 +219,18 @@ public class AvatarBehaviorEngine {
             
         case .listening:
             idleAnimator.isSpeaking = false
+            idleAnimator.isListening = true
             gazeController.isListening = true
-            gazeController.lookAt(SIMD2(0, 0)) // look at speaker
+            gazeController.lookAt(SIMD2(0, 0))
             idleAnimator.setMood(.neutral)
             emotion.setEmotion(.neutral)
             scheduleNextNod()
             
         case .speaking:
             idleAnimator.isSpeaking = true
+            idleAnimator.isListening = false
             gazeController.isListening = false
-            emotion.setEmotion(.happy) // default speaking emotion
+            emotion.setEmotion(.happy)
             
         case .thinking:
             idleAnimator.isSpeaking = false
@@ -325,45 +328,82 @@ public class AvatarBehaviorEngine {
     }
     
     private func tickListening(now: TimeInterval) {
-        // Periodic nods while listening
+        // Tell idle animator we're listening (affects blink rate, attention)
+        idleAnimator.isListening = true
+        
+        // Research (Hale et al. 2020): Listener nod patterns
+        // 1. Mimicry nods at 600ms delay following speaker's head movement
+        // 2. Fast nodding (>1.5Hz) = backchannel "I'm following"
+        // 3. Triple-nod clusters encourage speaker to continue
         if now >= nextNodTime {
-            // Vary nod type
             let roll = Float.random(in: 0...1)
-            if roll < 0.6 {
-                headGesture.nod(intensity: Float.random(in: 0.5...1.0))
-            } else if roll < 0.85 {
+            if roll < 0.45 {
+                // Single nod — basic acknowledgment
+                headGesture.nod(intensity: Float.random(in: 0.5...0.8))
+            } else if roll < 0.7 {
+                // Double nod — stronger agreement
                 headGesture.doubleNod(intensity: 0.7)
+            } else if roll < 0.85 {
+                // Triple nod cluster — "keep going" signal
+                headGesture.nod(intensity: 0.5)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.headGesture.nod(intensity: 0.4)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                    self?.headGesture.nod(intensity: 0.3)
+                }
             } else {
+                // Tilt-nod — thoughtful listening
                 headGesture.play(.tiltNod, intensity: 0.6)
             }
             scheduleNextNod()
         }
+        
+        // Research (Max Planck 2025): Eyebrow signals during listening
+        // Furrow = "I don't understand" → speaker elaborates
+        // Raise = "tell me more" / surprise
+        // We don't auto-trigger these — they should be driven by comprehension state
+        // But we DO ensure gaze is maintained (70% eye contact for listeners)
     }
     
     private func tickSpeaking(now: TimeInterval) {
+        idleAnimator.isListening = false
+        
         // Emphasis nods on audio energy peaks
         let energy = idleAnimator.audioEnergy
         if energy > 0.3 && (now - lastEnergyPeak) > 0.8 {
             headGesture.nod(intensity: min(energy * 2, 1.0))
             lastEnergyPeak = now
             
-            // Brow raise on strong emphasis (Disney-level detail)
+            // Research: Brow raise accompanies vocal emphasis
             if energy > 0.5 {
-                // Brief brow flash accompanies vocal emphasis
-                // This is handled by the emotion engine nudge
+                emotion.nudge(arousal: 0.1) // brief arousal spike
             }
         }
         
-        // Periodic gaze aversion while speaking (speakers look away ~60% of time)
-        if stateTime > 2.0 && Int(stateTime * 2) % 5 == 0 {
-            let shouldAvert = Float.random(in: 0...1) < 0.4
-            if shouldAvert {
-                gazeController.avertGaze(
-                    direction: [.left, .right, .upLeft, .upRight].randomElement()!,
-                    duration: Double.random(in: 0.5...1.5)
-                )
+        // Research (Microsoft): Speakers look away ~60% of time
+        // But look BACK at listener before turn end (turn-taking signal)
+        if stateTime > 2.0 {
+            let cyclePos = stateTime.truncatingRemainder(dividingBy: 3.0)
+            if cyclePos < 0.1 { // check once per 3s cycle
+                let shouldAvert = Float.random(in: 0...1) < 0.55
+                if shouldAvert {
+                    gazeController.avertGaze(
+                        direction: [.left, .right, .upLeft, .upRight].randomElement()!,
+                        duration: Double.random(in: 0.8...2.0)
+                    )
+                } else {
+                    // Look back at listener
+                    gazeController.lookAt(SIMD2(0, 0))
+                }
             }
         }
+    }
+    
+    /// Signal that speaking is about to end.
+    /// Research: speakers look at listener before yielding the turn.
+    public func willStopSpeaking() {
+        gazeController.lookAt(SIMD2(0, 0)) // look at listener
     }
     
     private func tickThinking(now: TimeInterval) {
