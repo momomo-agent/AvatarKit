@@ -96,9 +96,12 @@ public class AvatarIdleAnimator {
     
     // --- Body position (driven by breathing, head follows with drag) ---
     private var bodyY: Float = 0          // current body Y from breathing
+    private var bodyZ: Float = 0          // current body Z from breathing (lean)
     private var bodyYVelocity: Float = 0  // for smooth following
     private var headDragY: Float = 0      // head's delayed follow of bodyY
     private var headDragYVel: Float = 0
+    private var headDragZ: Float = 0      // head's delayed follow of bodyZ
+    private var headDragZVel: Float = 0
     
     // --- Body sway (organic whole-body drift, independent of head rotation) ---
     private var bodySwayPhase: SIMD3<Float> = SIMD3(
@@ -251,15 +254,23 @@ public class AvatarIdleAnimator {
             
             // Body Y driven by breathing (this is the "hips" in a bust)
             bodyY = breathAmount * 0.006 * depth
+            // Body Z: inhale = slight lean back, exhale = lean forward
+            bodyZ = -breathAmount * 0.004 * depth
             
-            // Head follows body Y with DRAG (overlap principle)
+            // Head follows body Y and Z with DRAG (overlap principle)
             // Spring-damper with lower stiffness = delayed follow
-            let dragStiffness: Float = 8.0  // how quickly head catches up
+            let dragStiffness: Float = 8.0
             let dragDamping: Float = 2.0 * sqrt(dragStiffness)
-            let dragForce = (bodyY - headDragY) * dragStiffness
-            let dragDamp = -headDragYVel * dragDamping
-            headDragYVel += (dragForce + dragDamp) * dt
+            
+            let dragForceY = (bodyY - headDragY) * dragStiffness
+            let dragDampY = -headDragYVel * dragDamping
+            headDragYVel += (dragForceY + dragDampY) * dt
             headDragY += headDragYVel * dt
+            
+            let dragForceZ = (bodyZ - headDragZ) * dragStiffness
+            let dragDampZ = -headDragZVel * dragDamping
+            headDragZVel += (dragForceZ + dragDampZ) * dt
+            headDragZ += headDragZVel * dt
             
             // Head pitch from breathing: rises on inhale (overlap = slightly delayed)
             headPitch += breathAmount * 0.3 * depth
@@ -660,21 +671,22 @@ public class AvatarIdleAnimator {
         bodySwayPhase += SIMD3(dt * swaySpeed * 0.7, dt * swaySpeed * 0.5, dt * swaySpeed * 0.9)
         bodySwayPhase2 += SIMD3(dt * swaySpeed * 1.3, dt * swaySpeed * 1.1, dt * swaySpeed * 0.6)
         
-        let swayAmp: Float = isSpeaking ? 0.004 : 0.003
+        let swayAmp: Float = isSpeaking ? 0.006 : 0.004
         let sway1 = SIMD3<Float>(
             sin(bodySwayPhase.x) * swayAmp,
             0,  // Y is driven by breathing, not sway
-            sin(bodySwayPhase.z) * swayAmp * 0.7
+            sin(bodySwayPhase.z) * swayAmp * 1.2   // Z bigger for visible depth
         )
         let sway2 = SIMD3<Float>(
             sin(bodySwayPhase2.x) * swayAmp * 0.4,
             0,
-            sin(bodySwayPhase2.z) * swayAmp * 0.5
+            sin(bodySwayPhase2.z) * swayAmp * 0.8
         )
         
-        // Final translation: rotation-derived + body Y (with drag) + sway
+        // Final translation: rotation-derived + body Y/Z (with drag) + sway
         derivedTranslation += (sway1 + sway2) * intensity
-        derivedTranslation.y += headDragY * intensity  // breathing Y with overlap
+        derivedTranslation.y += headDragY * intensity
+        derivedTranslation.z += headDragZ * intensity
         
         onFrame?(bs, q, derivedTranslation)
     }
