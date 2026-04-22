@@ -94,22 +94,14 @@ public class AvatarHeadGesture {
     public init() {}
     
     public func start() {
-        guard displayLink == nil else { return }
         lastTime = CACurrentMediaTime()
-        displayLink = CADisplayLink(target: self, selector: #selector(tick))
-        displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
-        displayLink?.add(to: .main, forMode: .common)
     }
     
     public func stop() {
-        displayLink?.invalidate()
-        displayLink = nil
         activeGestures.removeAll()
     }
     
-    public var isRunning: Bool { displayLink != nil }
-    
-    deinit { stop() }
+    public var isRunning: Bool { true }
     
     // MARK: - Trigger Gestures
     
@@ -192,7 +184,7 @@ public class AvatarHeadGesture {
     
     // MARK: - Main Loop
     
-    @objc private func tick() {
+    @objc public func tick() {
         let now = CACurrentMediaTime()
         
         var totalPitch: Float = 0

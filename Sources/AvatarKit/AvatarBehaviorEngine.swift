@@ -132,6 +132,10 @@ public class AvatarBehaviorEngine {
             guard let self else { return }
             var merged = tracking
             
+            // Tick gaze and gesture from the animation frame (single driver)
+            self.gazeController.tick()
+            self.headGesture.tick()
+            
             // Add gaze eye blendshapes
             for (key, value) in self.gazeEyeBlendshapes {
                 merged.blendshapes[key] = (merged.blendshapes[key] ?? 0) + value
@@ -174,8 +178,10 @@ public class AvatarBehaviorEngine {
         gazeController.start()
         headGesture.start()
         
+        // Single DisplayLink for state logic (10fps is enough for state checks)
+        // All animation is driven by IdleAnimator's 60fps DisplayLink
         displayLink = CADisplayLink(target: self, selector: #selector(tick))
-        displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 30, preferred: 30)
+        displayLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 5, maximum: 15, preferred: 10)
         displayLink?.add(to: .main, forMode: .common)
         
         enterState(.idle)
