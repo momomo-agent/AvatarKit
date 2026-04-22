@@ -378,7 +378,8 @@ public class AvatarIdleAnimator {
             } else {
                 stiffness = 2.0   // normal idle
             }
-            let damping: Float = 2.0 * sqrt(stiffness)
+            // Slightly overdamped (ζ > 1) to prevent any oscillation/bounce
+            let damping: Float = 2.5 * sqrt(stiffness)
             
             // Add pose drift to target (so we never return to exact zero)
             let effectiveTarget = headTarget + poseDriftCurrent
@@ -602,8 +603,9 @@ public class AvatarIdleAnimator {
               * simd_quatf(angle: headRoll * rad, axis: SIMD3(0, 0, 1))
         
         // Neck pivot: vector from head center DOWN to neck base
-        // In avatar scene units (not meters). Tunable.
-        let neckPivot = SIMD3<Float>(0, -0.12, 0)
+        // In avatar scene units. Small value = subtle grounded movement.
+        // Too large = bouncy ball effect. Tuned by visual inspection.
+        let neckPivot = SIMD3<Float>(0, -0.03, 0)
         
         // Rotation around pivot: T = pivot + R * (-pivot)
         // This gives the displacement of the head center due to rotation
@@ -615,7 +617,7 @@ public class AvatarIdleAnimator {
             let breathBob: Float = breathPhase < 0.4
                 ? cubicEaseOut(breathPhase / 0.4)
                 : 1.0 - cubicEaseIn((breathPhase - 0.4) / 0.6)
-            derivedTranslation.y += breathBob * 0.003 * intensity
+            derivedTranslation.y += breathBob * 0.001 * intensity
         }
         
         onFrame?(bs, q, derivedTranslation)
