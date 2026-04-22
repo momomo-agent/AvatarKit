@@ -161,6 +161,17 @@ public class AvatarIdleAnimator {
     private var speakWindDownPhase: Float = -1
     private var prevSpeakingState = false
     
+    // --- Beat Detection (onset-driven head gestures while speaking) ---
+    // Detect energy rises (onsets) to trigger beat gestures at speech rhythm
+    private var prevEnergy: Float = 0
+    private var energyRiseAccum: Float = 0     // accumulates rising energy
+    private var lastBeatTime: TimeInterval = 0  // when last beat fired
+    private var beatCooldown: Double = 0.25     // min time between beats
+    private var beatGesturePhase: Float = -1    // -1 = inactive, 0→1 = gesture
+    private var beatGestureDuration: Float = 0.3
+    private var beatGestureTarget = SIMD3<Float>.zero  // yaw, pitch, roll impulse
+    private var beatCount: Int = 0              // for varying gesture type
+    
     // --- Secondary Action Coupling ---
     // Tracks recent head motion for shoulder/brow follow-through
     private var recentHeadYawDelta: Float = 0
@@ -346,12 +357,15 @@ public class AvatarIdleAnimator {
                 let amp: Float
                 let interval: Double
                 if isSpeaking {
-                    amp = 14.0  // Disney: big expressive head movements
-                    interval = Double.random(in: 0.3...1.0)  // rapid changes
+                    // Speaking head targets are now driven by beats (below).
+                    // Between beats, hold a gentle forward-leaning "engaged" pose
+                    // that drifts slowly — the beats punch through this base.
+                    amp = 3.0
+                    interval = Double.random(in: 1.5...3.0)
                     headTarget = SIMD3(
                         Float.random(in: -amp...amp),
-                        Float.random(in: -amp*0.5...amp*0.5),
-                        Float.random(in: -amp*0.3...amp*0.3)
+                        Float.random(in: 2.0...5.0),   // slight forward lean
+                        Float.random(in: -2.0...2.0)
                     )
                 } else if isListening || currentMood == .listening {
                     // LISTENING: head slightly tilted, frequent nods, forward lean
@@ -446,15 +460,83 @@ public class AvatarIdleAnimator {
             headPitch += headCurrent.y
             headRoll += headCurrent.z
             
-            // Prosody-driven additions
-            if isSpeaking && smoothedEnergy > 0.15 {
-                let nodAmount = (smoothedEnergy - 0.15) * 8.0  // big energy nods
-                headPitch -= nodAmount
-            }
-            if isSpeaking && smoothedPitch > 0 {
-                let pitchDelta = smoothedPitch - prevSmoothedPitch
-                headPitch -= pitchDelta * 0.02
-                headRoll += pitchDelta * 0.01
+            // ═══════════════════════════════════════════
+            // Beat Gesture System (speaking only)
+            // Detect audio energy onsets → trigger head gestures at speech rhythm
+            // Disney: head moves on EMPHASIS, not randomly
+            // ═══════════════════════════════════════════
+            if isSpeaking {
+                // Onset detection: energy rising = potential beat
+                let energyDelta = smoothedEnergy - prevEnergy
+                if energyDelta > 0 {
+                    energyRiseAccum += energyDelta
+                }
+                prevEnergy = smoothedEnergy
+                
+                // Fire beat when: enough energy accumulated + cooldown passed
+                let timeSinceBeat = now - lastBeatTime
+                if energyRiseAccum > 0.05 && timeSinceBeat > beatCooldown && smoothedEnergy > 0.08 {
+                    // BEAT! Pick gesture type based on count (variety)
+                    beatCount += 1
+                    let intensity = min(energyRiseAccum * 6.0, 1.5)
+                    
+                    switch beatCount % 5 {
+                    case 0:
+                        // Nod down (most common — emphasis)
+                        beatGestureTarget = SIMD3(0, intensity * 8.0, 0)
+                    case 1:
+                        // Tilt + slight nod ("you know what I mean")
+                        let dir: Float = Float.random(in: 0...1) < 0.5 ? 1 : -1
+                        beatGestureTarget = SIMD3(dir * intensity * 3.0, intensity * 5.0, dir * intensity * 4.0)
+                    case 2:
+                        // Forward lean ("listen to this")
+                        beatGestureTarget = SIMD3(0, intensity * 6.0, 0)
+                        // Also push body Z forward
+                        bodyZ += intensity * 0.3
+                    case 3:
+                        // Yaw turn ("on the other hand")
+                        let dir: Float = Float.random(in: 0...1) < 0.5 ? 1 : -1
+                        beatGestureTarget = SIMD3(dir * intensity * 6.0, intensity * 3.0, 0)
+                    default:
+                        // Head back + slight roll ("wow" / emphasis)
+                        let dir: Float = Float.random(in: 0...1) < 0.5 ? 1 : -1
+                        beatGestureTarget = SIMD3(0, -intensity * 4.0, dir * intensity * 3.0)
+                    }
+                    
+                    beatGesturePhase = 0
+                    beatGestureDuration = Float.random(in: 0.2...0.4)
+                    lastBeatTime = now
+                    energyRiseAccum = 0
+                    
+                    // Vary cooldown: fast speech = shorter cooldown
+                    beatCooldown = smoothedEnergy > 0.3 ? 0.2 : 0.35
+                }
+                
+                // Decay accumulator if energy drops (missed beat)
+                if energyDelta <= 0 {
+                    energyRiseAccum *= 0.85
+                }
+                
+                // Apply active beat gesture with ease-out
+                if beatGesturePhase >= 0 {
+                    beatGesturePhase += dt / beatGestureDuration
+                    if beatGesturePhase >= 1.0 {
+                        beatGesturePhase = -1
+                    } else {
+                        // Sharp attack, smooth decay (like a real head gesture)
+                        let t = beatGesturePhase
+                        let envelope: Float = t < 0.3 ? cubicEaseOut(t / 0.3) : 1.0 - cubicEaseIn((t - 0.3) / 0.7)
+                        headPitch += beatGestureTarget.y * envelope
+                        headYaw += beatGestureTarget.x * envelope
+                        headRoll += beatGestureTarget.z * envelope
+                    }
+                }
+            } else {
+                // Reset beat state when not speaking
+                prevEnergy = 0
+                energyRiseAccum = 0
+                beatGesturePhase = -1
+                beatCount = 0
             }
             if isListening {
                 headPitch -= 7.0  // big forward lean ("I'm all ears")
