@@ -130,10 +130,6 @@ public class AvatarAnimationMixer {
         for key in merged.keys {
             merged[key] = min(max(merged[key]!, 0), 1)
         }
-
-        // Don't filter out near-zero values — removing keys causes Apple's
-        // renderer to snap between "key present at small value" and "key absent",
-        // which looks like twitching. Keep all keys, let the renderer interpolate.
         
         // Head rotation: compose idle + pose neck orientation
         let poseNeck = poseBlender.neckOrientation()
