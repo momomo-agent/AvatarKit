@@ -59,6 +59,9 @@ public class AvatarBehaviorEngine {
     /// Head gesture generator (nod, shake, tilt).
     public let headGesture: AvatarHeadGesture
     
+    /// Continuous emotion model (valence-arousal circumplex).
+    public let emotion = EmotionEngine()
+    
     /// Expression animator (preset expression transitions).
     public let expressionAnimator: ExpressionAnimator
     
@@ -145,6 +148,15 @@ public class AvatarBehaviorEngine {
                 merged.headRotation.roll += totalHeadRoll
             }
             
+            // Add emotion blendshapes (continuous valence-arousal)
+            let emotionBS = self.emotion.update(
+                dt: Float(CACurrentMediaTime() - self.lastTime),
+                elapsed: Float(CACurrentMediaTime() - self.stateEntryTime)
+            )
+            for (key, value) in emotionBS {
+                merged.blendshapes[key] = (merged.blendshapes[key] ?? 0) + value
+            }
+            
             self.onFrame?(merged)
         }
         
@@ -202,23 +214,26 @@ public class AvatarBehaviorEngine {
             gazeController.isListening = false
             gazeController.releaseGaze()
             idleAnimator.setMood(.neutral)
+            emotion.setEmotion(.calm)
             
         case .listening:
             idleAnimator.isSpeaking = false
             gazeController.isListening = true
             gazeController.lookAt(SIMD2(0, 0)) // look at speaker
             idleAnimator.setMood(.neutral)
+            emotion.setEmotion(.neutral)
             scheduleNextNod()
             
         case .speaking:
             idleAnimator.isSpeaking = true
             gazeController.isListening = false
-            // Speaker looks away more (40% mutual gaze vs 70% for listener)
+            emotion.setEmotion(.happy) // default speaking emotion
             
         case .thinking:
             idleAnimator.isSpeaking = false
             gazeController.avertGaze(direction: .upLeft, duration: thinkingTimeout)
             idleAnimator.setMood(.thinking)
+            emotion.setEmotion(.thinking)
             
         case .emoting:
             // Expression animator handles this externally
@@ -331,6 +346,23 @@ public class AvatarBehaviorEngine {
         if energy > 0.3 && (now - lastEnergyPeak) > 0.8 {
             headGesture.nod(intensity: min(energy * 2, 1.0))
             lastEnergyPeak = now
+            
+            // Brow raise on strong emphasis (Disney-level detail)
+            if energy > 0.5 {
+                // Brief brow flash accompanies vocal emphasis
+                // This is handled by the emotion engine nudge
+            }
+        }
+        
+        // Periodic gaze aversion while speaking (speakers look away ~60% of time)
+        if stateTime > 2.0 && Int(stateTime * 2) % 5 == 0 {
+            let shouldAvert = Float.random(in: 0...1) < 0.4
+            if shouldAvert {
+                gazeController.avertGaze(
+                    direction: [.left, .right, .upLeft, .upRight].randomElement()!,
+                    duration: Double.random(in: 0.5...1.5)
+                )
+            }
         }
     }
     

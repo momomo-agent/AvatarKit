@@ -198,7 +198,12 @@ public class AvatarLipSync {
     
     /// Smoothing factor for blendshape transitions (0 = instant, 1 = no change).
     /// 0.3-0.5 gives natural-looking mouth movement.
-    public var smoothing: Float = 0.4
+    public var smoothing: Float = 0.35
+    
+    /// Coarticulation strength (0 = none, 1 = full anticipatory blending).
+    /// Real speech has overlapping mouth shapes — the mouth starts forming
+    /// the next sound before the current one finishes.
+    public var coarticulation: Float = 0.3
     
     /// Overall intensity multiplier for lip sync blendshapes.
     public var intensity: Float = 1.0
@@ -344,13 +349,12 @@ public class AvatarLipSync {
         }
         
         guard keyframeIndex < keyframes.count else {
-            // Past the end — return to silence
             return Viseme.silence.blendshapes
         }
         
         let current = keyframes[keyframeIndex]
         
-        // If we have a next keyframe, interpolate
+        // If we have a next keyframe, interpolate with coarticulation
         if keyframeIndex + 1 < keyframes.count {
             let next = keyframes[keyframeIndex + 1]
             let segmentDuration = next.time - current.time
@@ -362,17 +366,31 @@ public class AvatarLipSync {
             // Ease in-out for more natural movement
             let easedT = clampedT * clampedT * (3.0 - 2.0 * clampedT)
             
-            return interpolateBlendshapes(
+            var result = interpolateBlendshapes(
                 from: current.viseme.blendshapes,
                 to: next.viseme.blendshapes,
                 t: easedT
             )
+            
+            // Coarticulation: blend in the NEXT-next viseme anticipatorily
+            // The mouth starts preparing for upcoming sounds
+            if coarticulation > 0, keyframeIndex + 2 < keyframes.count {
+                let upcoming = keyframes[keyframeIndex + 2]
+                let anticipation = clampedT * clampedT * coarticulation * 0.3
+                if anticipation > 0.01 {
+                    for (key, value) in upcoming.viseme.blendshapes {
+                        result[key] = (result[key] ?? 0) + value * anticipation
+                    }
+                }
+            }
+            
+            return result
         }
         
         // Last keyframe — hold then fade to silence
         let holdTime = current.time + current.duration
         if time > holdTime {
-            let fadeT = Float((time - holdTime) / 0.15) // 150ms fade to silence
+            let fadeT = Float((time - holdTime) / 0.15)
             let clampedT = min(fadeT, 1.0)
             return interpolateBlendshapes(
                 from: current.viseme.blendshapes,

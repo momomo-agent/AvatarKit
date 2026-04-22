@@ -76,6 +76,18 @@ public class AvatarIdleAnimator {
     // Audio energy smoothing
     private var smoothedEnergy: Float = 0
     
+    // Asymmetric micro-expressions (Disney-level detail)
+    private var nextMicroExpressionTime: TimeInterval = 0
+    private var microExpressionBS: [String: Float] = [:]
+    private var microExpressionDecay: Float = 0
+    
+    // Asymmetric blink (occasional single-eye squint)
+    private var asymmetricBlinkSide: Int = 0 // 0=both, 1=left heavier, 2=right heavier
+    
+    // Breathing variation
+    private var breathDepthVariation: Float = 1.0
+    private var nextBreathVariationTime: TimeInterval = 0
+    
     // MARK: - Init / Lifecycle
     
     public init() {
@@ -127,7 +139,7 @@ public class AvatarIdleAnimator {
             
             // Sinusoidal chest rise: jawOpen micro-movement + slight head tilt
             let breathAmount = sin(breathPhase) * 0.5 + 0.5 // 0-1
-            let breathIntensity: Float = isSpeaking ? 0.3 : 0.6
+            let breathIntensity: Float = (isSpeaking ? 0.3 : 0.6) * breathDepthVariation
             
             blendshapes["jawOpen"] = (blendshapes["jawOpen"] ?? 0) + breathAmount * 0.02 * breathIntensity
             headPitch += sin(breathPhase) * 0.3 * breathIntensity // subtle nod with breath
@@ -188,6 +200,31 @@ public class AvatarIdleAnimator {
             for (key, value) in moodBlendshapes {
                 blendshapes[key] = (blendshapes[key] ?? 0) + value * moodTransitionProgress
             }
+        }
+        
+        // --- Layer 6: Micro-Expressions (Disney detail) ---
+        updateMicroExpressions(now: now, dt: dt)
+        if microExpressionDecay > 0.01 {
+            for (key, value) in microExpressionBS {
+                blendshapes[key] = (blendshapes[key] ?? 0) + value * microExpressionDecay
+            }
+        }
+        
+        // --- Layer 7: Asymmetric Brow Movement ---
+        // Subtle asymmetry makes faces look alive (humans are never perfectly symmetric)
+        let asymmetry = headNoiseX.sample(t: elapsed * 0.15) * 0.08
+        if abs(asymmetry) > 0.01 {
+            if asymmetry > 0 {
+                blendshapes["browOuterUpLeft"] = (blendshapes["browOuterUpLeft"] ?? 0) + asymmetry
+            } else {
+                blendshapes["browOuterUpRight"] = (blendshapes["browOuterUpRight"] ?? 0) - asymmetry
+            }
+        }
+        
+        // --- Layer 8: Breathing Depth Variation ---
+        if now > nextBreathVariationTime {
+            breathDepthVariation = Float.random(in: 0.7...1.3)
+            nextBreathVariationTime = now + Double.random(in: 8...15)
         }
         
         // Apply master intensity
@@ -291,6 +328,75 @@ public class AvatarIdleAnimator {
         let mean: Double = isSpeaking ? 0.5 : 0.8
         let interval = -mean * log(Double.random(in: 0.001...1.0))
         nextSaccadeTime = time + max(0.2, min(interval, 3.0))
+    }
+    
+    // MARK: - Micro-Expression System
+    
+    /// Occasional fleeting expressions that flash across the face.
+    /// Humans do this constantly — a brief lip corner pull, a nostril flare,
+    /// a quick brow flash. Duration: 200-500ms. Interval: 5-15s.
+    private func updateMicroExpressions(now: TimeInterval, dt: Float) {
+        // Decay current micro-expression
+        if microExpressionDecay > 0 {
+            microExpressionDecay -= dt * 3.0 // ~300ms decay
+            if microExpressionDecay <= 0 {
+                microExpressionDecay = 0
+                microExpressionBS = [:]
+            }
+        }
+        
+        // Schedule next
+        if now >= nextMicroExpressionTime {
+            triggerMicroExpression()
+            let interval = Double.random(in: 5...15)
+            nextMicroExpressionTime = now + interval
+        }
+    }
+    
+    private func triggerMicroExpression() {
+        microExpressionDecay = 1.0
+        
+        // Random micro-expression type
+        let type = Int.random(in: 0...7)
+        switch type {
+        case 0: // Lip corner pull (asymmetric smile flash)
+            let side = Bool.random()
+            microExpressionBS = [
+                side ? "mouthSmileLeft" : "mouthSmileRight": 0.15,
+                side ? "cheekSquintLeft" : "cheekSquintRight": 0.08,
+            ]
+        case 1: // Brow flash (universal greeting signal)
+            microExpressionBS = [
+                "browOuterUpLeft": 0.2, "browOuterUpRight": 0.2,
+                "browInnerUp": 0.1,
+            ]
+        case 2: // Nostril flare
+            microExpressionBS = [
+                "noseSneerLeft": 0.1, "noseSneerRight": 0.1,
+            ]
+        case 3: // Lip press (thinking micro-gesture)
+            microExpressionBS = [
+                "mouthPressLeft": 0.15, "mouthPressRight": 0.15,
+                "mouthClose": 0.1,
+            ]
+        case 4: // Single brow raise
+            let side = Bool.random()
+            microExpressionBS = [
+                side ? "browOuterUpLeft" : "browOuterUpRight": 0.2,
+            ]
+        case 5: // Slight squint (processing)
+            microExpressionBS = [
+                "eyeSquintLeft": 0.12, "eyeSquintRight": 0.12,
+            ]
+        case 6: // Mouth corner tighten
+            microExpressionBS = [
+                "mouthDimpleLeft": 0.1, "mouthDimpleRight": 0.1,
+            ]
+        default: // Jaw shift
+            microExpressionBS = [
+                Bool.random() ? "jawLeft" : "jawRight": 0.05,
+            ]
+        }
     }
     
     // MARK: - Mood / Expression System
