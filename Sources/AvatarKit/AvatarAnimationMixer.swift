@@ -34,22 +34,22 @@ public class AvatarAnimationMixer {
     public var onFrame: ((AvatarFaceTracking) -> Void)?
     
     // MARK: - State
-    
+
     private var lipSyncBlendshapes: [String: Float] = [:]
     private var idleBlendshapes: [String: Float] = [:]
     private var idleHeadRotation: simd_quatf = .init(ix: 0, iy: 0, iz: 0, r: 1)
-    
+
     // MARK: - Init
-    
+
     public init() {}
-    
+
     /// Wire up the animation sources. Call this after setting lipSync and idleAnimator.
     public func connect() {
         lipSync?.onFrame = { [weak self] blendshapes in
             self?.lipSyncBlendshapes = blendshapes
             self?.mix()
         }
-        
+
         idleAnimator?.onFrame = { [weak self] blendshapes, headRotation in
             self?.idleBlendshapes = blendshapes
             self?.idleHeadRotation = headRotation
@@ -110,17 +110,12 @@ public class AvatarAnimationMixer {
         // Remove near-zero
         merged = merged.filter { $0.value > 0.001 }
         
-        // Head rotation
-        // Head rotation: convert quaternion to HeadRotation degrees
+        // Head rotation: pass quaternion directly to avoid euler conversion jitter
         let q = manualHeadRotation ?? idleHeadRotation
-        let pitch = atan2(2 * (q.real * q.imag.x + q.imag.y * q.imag.z),
-                          1 - 2 * (q.imag.x * q.imag.x + q.imag.y * q.imag.y)) * 180 / .pi
-        let yaw = asin(max(-1, min(1, 2 * (q.real * q.imag.y - q.imag.z * q.imag.x)))) * 180 / .pi
-        let headRotation = AvatarFaceTracking.HeadRotation(pitch: pitch, yaw: yaw)
-        
+
         let tracking = AvatarFaceTracking(
             blendshapes: merged,
-            headRotation: headRotation
+            rawQuaternion: q
         )
         
         currentTracking = tracking

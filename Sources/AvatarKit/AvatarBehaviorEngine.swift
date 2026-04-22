@@ -94,6 +94,7 @@ public class AvatarBehaviorEngine {
     // Gaze output
     private var gazeEyeBlendshapes: [String: Float] = [:]
     private var gazeHeadDelta: SIMD2<Float> = .zero
+    private var smoothedGazeHeadDelta: SIMD2<Float> = .zero
     
     // Head gesture output
     private var gesturePitch: Float = 0
@@ -132,26 +133,29 @@ public class AvatarBehaviorEngine {
         mixer.onFrame = { [weak self] tracking in
             guard let self else { return }
             var merged = tracking
-            
+
             // Tick gaze and gesture from the animation frame (single driver)
             self.gazeController.externalTick()
             self.headGesture.externalTick()
-            
+
             // Add gaze eye blendshapes
             for (key, value) in self.gazeEyeBlendshapes {
                 merged.blendshapes[key] = (merged.blendshapes[key] ?? 0) + value
             }
-            
-            // Add gaze head contribution + gesture head rotation
-            let totalHeadPitch = self.gazeHeadDelta.y * 10 + self.gesturePitch
-            let totalHeadYaw = self.gazeHeadDelta.x * 10 + self.gestureYaw
-            let totalHeadRoll = self.gestureRoll
-            
-            if abs(totalHeadPitch) > 0.01 || abs(totalHeadYaw) > 0.01 || abs(totalHeadRoll) > 0.01 {
-                merged.headRotation.pitch += totalHeadPitch
-                merged.headRotation.yaw += totalHeadYaw
-                merged.headRotation.roll += totalHeadRoll
-            }
+
+            // Compose gaze + gesture head rotation as quaternion (avoids euler jitter)
+            // Smooth gaze head delta so head follows eyes gradually, not in saccade jumps
+            let smoothRate: Float = 0.08
+            self.smoothedGazeHeadDelta += (self.gazeHeadDelta - self.smoothedGazeHeadDelta) * smoothRate
+            let totalPitch = self.smoothedGazeHeadDelta.y * 10 + self.gesturePitch
+            let totalYaw = self.smoothedGazeHeadDelta.x * 10 + self.gestureYaw
+            let totalRoll = self.gestureRoll
+            let rad = Float.pi / 180.0
+            let extraQ = simd_quatf(angle: totalYaw * rad, axis: SIMD3(0, 1, 0))
+                       * simd_quatf(angle: totalPitch * rad, axis: SIMD3(1, 0, 0))
+                       * simd_quatf(angle: totalRoll * rad, axis: SIMD3(0, 0, 1))
+            let baseQ = merged.rawQuaternion ?? merged.headRotation.quaternion
+            merged.rawQuaternion = baseQ * extraQ
             
             // Add emotion blendshapes (continuous valence-arousal)
             let emotionBS = self.emotion.update(
@@ -291,14 +295,24 @@ public class AvatarBehaviorEngine {
     /// Play a preset expression, then return to previous state.
     public func emote(_ preset: ExpressionPreset, duration: TimeInterval = 0.3, holdFor: TimeInterval = 1.0) {
         let previousState = state
+
+        // Seed the expression animator with current blendshape state for smooth transition
+        _ = expressionAnimator.set(mixer.currentTracking.blendshapes)
+
         transition(to: .emoting)
-        
+
         expressionAnimator.animate(to: preset, duration: duration) { [weak self] tracking in
             self?.onFrame?(tracking)
         } completion: { [weak self] in
-            // Hold, then return
+            // Hold, then animate back to neutral before returning to previous state
             DispatchQueue.main.asyncAfter(deadline: .now() + holdFor) {
-                self?.transition(to: previousState)
+                guard let self else { return }
+                // Animate back to neutral (empty blendshapes)
+                self.expressionAnimator.animate(to: [:], duration: duration) { [weak self] tracking in
+                    self?.onFrame?(tracking)
+                } completion: { [weak self] in
+                    self?.transition(to: previousState)
+                }
             }
         }
     }
@@ -309,11 +323,14 @@ public class AvatarBehaviorEngine {
         let now = CACurrentMediaTime()
         stateTime = now - stateEntryTime
 
-        // Drive all subsystems from this single DisplayLink
-        idleAnimator.externalTick()
-        gazeController.externalTick()
-        headGesture.externalTick()
-        lipSync.externalTick()
+        // Drive subsystems from this single DisplayLink.
+        // Skip idle/lipSync when emoting — ExpressionAnimator drives onFrame directly.
+        if state != .emoting {
+            // Note: gazeController and headGesture are ticked inside mixer.onFrame
+            // (after idle produces its output) so they merge in the same frame.
+            idleAnimator.externalTick()
+            lipSync.externalTick()
+        }
 
         switch state {
         case .idle:
