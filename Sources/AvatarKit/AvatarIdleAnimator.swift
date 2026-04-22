@@ -94,11 +94,8 @@ public class AvatarIdleAnimator {
     private var headVelocity = SIMD3<Float>.zero // angular velocity
     private var nextHeadTargetTime: TimeInterval = 0
     
-    // --- Head translation (Lissajous arcs, not random noise) ---
-    private var arcPhaseA: Float = 0
-    private var arcPhaseB: Float = 0
-    private var arcFreqRatio: Float = 1.0  // changes periodically for variety
-    private var nextArcFreqChange: TimeInterval = 0
+    // --- Head translation (derived from rotation via neck pivot) ---
+    // No independent translation state needed — it's computed from rotation
     
     // --- Saccade ---
     private var nextSaccadeTime: TimeInterval = 0
@@ -163,8 +160,6 @@ public class AvatarIdleAnimator {
         nextSighTime = Double.random(in: 30...90)
         nextHeadTargetTime = Double.random(in: 2...5)
         nextPoseDriftTime = Double.random(in: 20...40)
-        nextArcFreqChange = Double.random(in: 8...15)
-        arcFreqRatio = [1.5, 2.0, 2.5, 3.0].randomElement()!
     }
     
     public func start() {
@@ -213,9 +208,6 @@ public class AvatarIdleAnimator {
         var headYaw: Float = 0
         var headPitch: Float = 0
         var headRoll: Float = 0
-        var headTx: Float = 0
-        var headTy: Float = 0
-        var headTz: Float = 0
         
         // ═══════════════════════════════════════════
         // Layer 1: Breathing (asymmetric: inhale 40%, exhale 60%)
@@ -243,7 +235,6 @@ public class AvatarIdleAnimator {
             let depth = breathVisible * breathDepthVariation
             bs["jawOpen"] = breathAmount * 0.02 * depth
             headPitch += breathAmount * 0.3 * depth  // head rises on inhale
-            headTy += breathAmount * 0.002 * depth   // vertical bob from breathing
             
             // Occasional sigh (deep breath + exhale sound)
             if sighPhase >= 0 {
@@ -415,39 +406,14 @@ public class AvatarIdleAnimator {
             }
             if isListening {
                 headPitch -= 3.0  // noticeable forward lean (attentive)
-                headTz -= 0.004   // lean body forward too
             }
             
             // ═══════════════════════════════════════════
-            // Layer 4b: Head Translation (Lissajous arcs)
-            // Disney: all movement follows ARCS, not straight lines
-            // Lissajous curve: x = A*sin(a*t), y = B*sin(b*t + δ)
-            // Creates natural figure-8 and elliptical paths
-            // ═══════════════════════════════════════════
-            let arcSpeed: Float = isSpeaking ? 0.35 : 0.18
-            arcPhaseA += dt * arcSpeed
-            arcPhaseB += dt * arcSpeed * arcFreqRatio
-            
-            let txAmp: Float = isSpeaking ? 0.008 : 0.005
-            headTx += sin(arcPhaseA) * txAmp
-            headTz += sin(arcPhaseB) * txAmp * 0.5
-            // Breathing bob on Y
-            let breathBob: Float = breathingEnabled ? (breathPhase < 0.4 ? cubicEaseOut(breathPhase / 0.4) : 1.0 - cubicEaseIn((breathPhase - 0.4) / 0.6)) : 0
-            headTy += breathBob * 0.003
-            
-            // Change arc frequency ratio periodically for variety
-            if now > nextArcFreqChange {
-                arcFreqRatio = [1.5, 2.0, 2.5, 3.0, 1.0/1.5, 1.0/2.0].randomElement()!
-                nextArcFreqChange = now + Double.random(in: 8...15)
-            }
-            
-            // ═══════════════════════════════════════════
-            // Layer 4c: Weight Shift
+            // Layer 4b: Weight Shift (rotation only, translation derived later)
             // ═══════════════════════════════════════════
             weightShiftPhase += dt * 2 * .pi / 6.0
             if weightShiftPhase > 2 * .pi { weightShiftPhase -= 2 * .pi }
             let swayAmount = sin(weightShiftPhase) * 0.5
-            headTx += swayAmount * 0.004
             headRoll += swayAmount * 0.8
             headYaw += swayAmount * 0.3
         }
@@ -532,7 +498,6 @@ public class AvatarIdleAnimator {
                 bs["jawOpen"] = (bs["jawOpen"] ?? 0) + a * 0.04       // mouth opens slightly
                 bs["browInnerUp"] = (bs["browInnerUp"] ?? 0) + a * 0.1 // brows lift
                 headPitch -= a * 1.5                                     // lean forward
-                headTz -= a * 0.003                                      // move forward
             }
         }
         if speakWindDownPhase >= 0 {
@@ -544,7 +509,6 @@ public class AvatarIdleAnimator {
                 bs["mouthPressLeft"] = (bs["mouthPressLeft"] ?? 0) + w * 0.1
                 bs["mouthPressRight"] = (bs["mouthPressRight"] ?? 0) + w * 0.1
                 headPitch += w * 1.0  // settle back
-                headTz += w * 0.002   // lean back
             }
         }
         
@@ -556,9 +520,6 @@ public class AvatarIdleAnimator {
                 bs["mouthPressLeft"] = (bs["mouthPressLeft"] ?? 0) + 0.08
                 bs["mouthPressRight"] = (bs["mouthPressRight"] ?? 0) + 0.08
             }
-            if smoothedEnergy > 0.2 {
-                headTz -= (smoothedEnergy - 0.2) * 0.01
-            }
         }
         
         // ═══════════════════════════════════════════
@@ -567,7 +528,7 @@ public class AvatarIdleAnimator {
         if !isSpeaking {
             updateFidget(now: now, dt: dt, bs: &bs,
                         headYaw: &headYaw, headPitch: &headPitch,
-                        headRoll: &headRoll, headTx: &headTx, headTz: &headTz)
+                        headRoll: &headRoll)
         }
         
         // ═══════════════════════════════════════════
@@ -604,13 +565,8 @@ public class AvatarIdleAnimator {
             bs["eyeSquintRight"] = (bs["eyeSquintRight"] ?? 0) + squintAmount
         }
         
-        // Big head movement → "shoulder" follow (translation follows rotation)
-        if abs(recentHeadYawDelta) > 0.5 {
-            headTx += recentHeadYawDelta * 0.0003  // body follows head turn
-        }
-        if abs(recentHeadPitchDelta) > 0.5 {
-            headTz += recentHeadPitchDelta * 0.0002  // lean follows nod
-        }
+        // Big head movement → additional rotation (not translation)
+        // The neck pivot model handles the spatial consequence automatically
         
         // Smile secondary actions
         let smileAmount = max(bs["mouthSmileLeft"] ?? 0, bs["mouthSmileRight"] ?? 0)
@@ -628,12 +584,16 @@ public class AvatarIdleAnimator {
         }
         
         // ═══════════════════════════════════════════
-        // Final: Apply intensity + output
+        // Final: Derive translation from rotation (neck pivot model)
+        // Biomechanics: head rotates around C1/C2 (atlas-axis), which is
+        // at the base of the skull, ~10-12cm below head center.
+        // Translation = pivot + rotation * (-pivot)
+        // This makes the head move naturally in space as a consequence
+        // of rotation, not independently (no "floating head" effect).
         // ═══════════════════════════════════════════
         if intensity != 1.0 {
             for key in bs.keys { bs[key]! *= intensity }
             headYaw *= intensity; headPitch *= intensity; headRoll *= intensity
-            headTx *= intensity; headTy *= intensity; headTz *= intensity
         }
         
         let rad = Float.pi / 180.0
@@ -641,7 +601,24 @@ public class AvatarIdleAnimator {
               * simd_quatf(angle: headPitch * rad, axis: SIMD3(1, 0, 0))
               * simd_quatf(angle: headRoll * rad, axis: SIMD3(0, 0, 1))
         
-        onFrame?(bs, q, SIMD3(headTx, headTy, headTz))
+        // Neck pivot: vector from head center DOWN to neck base
+        // In avatar scene units (not meters). Tunable.
+        let neckPivot = SIMD3<Float>(0, -0.12, 0)
+        
+        // Rotation around pivot: T = pivot + R * (-pivot)
+        // This gives the displacement of the head center due to rotation
+        let rotatedPivot = q.act(-neckPivot)
+        var derivedTranslation = neckPivot + rotatedPivot
+        
+        // Add breathing vertical bob (this IS independent of rotation)
+        if breathingEnabled {
+            let breathBob: Float = breathPhase < 0.4
+                ? cubicEaseOut(breathPhase / 0.4)
+                : 1.0 - cubicEaseIn((breathPhase - 0.4) / 0.6)
+            derivedTranslation.y += breathBob * 0.003 * intensity
+        }
+        
+        onFrame?(bs, q, derivedTranslation)
     }
     
     // MARK: - Blink System
@@ -890,8 +867,7 @@ public class AvatarIdleAnimator {
     private func updateFidget(now: TimeInterval, dt: Float,
                               bs: inout [String: Float],
                               headYaw: inout Float, headPitch: inout Float,
-                              headRoll: inout Float, headTx: inout Float,
-                              headTz: inout Float) {
+                              headRoll: inout Float) {
         if fidgetPhase < 0 {
             if now >= nextFidgetTime {
                 fidgetPhase = 0
@@ -952,7 +928,6 @@ public class AvatarIdleAnimator {
         switch fidgetType {
         case 0: // Look to one side
             headYaw += dir * envelope * 10.0
-            headTx += dir * envelope * 0.007
             // Eyes lead head (overlapping action: eyes 30% ahead)
             let eyePhase = min(p * 1.3, 1.0)
             let eyeEnvelope = eyePhase < 0.5 ? cubicEaseOut(eyePhase * 2) : 1.0 - cubicEaseIn((eyePhase - 0.5) * 2)
@@ -975,12 +950,10 @@ public class AvatarIdleAnimator {
         case 1: // Shoulder roll
             headRoll += dir * envelope * 6.0
             headPitch += envelope * 2.5
-            headTx += dir * envelope * 0.005
             
         case 2: // Big head turn
             headYaw += dir * envelope * 14.0
             headPitch -= envelope * 3.0
-            headTx += dir * envelope * 0.009
             // Squint on the side we're turning toward (effort)
             let squintSide = dir > 0 ? "eyeSquintRight" : "eyeSquintLeft"
             bs[squintSide] = (bs[squintSide] ?? 0) + max(0, mainAction) * 0.08
@@ -995,7 +968,6 @@ public class AvatarIdleAnimator {
         case 4: // Lean back then forward
             let leanCurve = sin(p * 2 * .pi)
             headPitch += leanCurve * 5.0
-            headTz += leanCurve * 0.004
             
         case 5: // Head tilt with curious brow
             headRoll += dir * envelope * 8.0
