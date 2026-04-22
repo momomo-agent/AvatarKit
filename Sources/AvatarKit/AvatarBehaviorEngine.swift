@@ -101,6 +101,11 @@ public class AvatarBehaviorEngine {
     private var gestureYaw: Float = 0
     private var gestureRoll: Float = 0
     
+    // Performative pose scheduling
+    private var nextPoseChangeTime: TimeInterval = 0
+    private var lastSpeakingPoseCategory: String = ""
+    private var speakingPoseIndex: Int = 0
+    
     // MARK: - Init
     
     public init() {
@@ -227,6 +232,8 @@ public class AvatarBehaviorEngine {
             gazeController.releaseGaze()
             idleAnimator.setMood(.neutral)
             emotion.setEmotion(.calm)
+            // Fade out any performative pose
+            mixer.poseBlender.clear(duration: 0.5)
             
         case .listening:
             idleAnimator.isSpeaking = false
@@ -236,18 +243,37 @@ public class AvatarBehaviorEngine {
             idleAnimator.setMood(.listening)
             emotion.setEmotion(.neutral)
             scheduleNextNod()
+            // Listening: pleasant neutral expression
+            if let pose = PoseLibrary.poses["pleasant_neutral"] {
+                var p = pose
+                p.blendFactor = 0.4  // subtle
+                mixer.poseBlender.transition(to: p, duration: 0.6)
+            }
             
         case .speaking:
             idleAnimator.isSpeaking = true
             idleAnimator.isListening = false
             gazeController.isListening = false
             emotion.setEmotion(.happy)
+            // Speaking: start with a confident pose, will cycle during speech
+            nextPoseChangeTime = CACurrentMediaTime() + Double.random(in: 2.0...4.0)
+            if let pose = PoseLibrary.poses["proud"] {
+                var p = pose
+                p.blendFactor = 0.35
+                mixer.poseBlender.transition(to: p, duration: 0.4)
+            }
             
         case .thinking:
             idleAnimator.isSpeaking = false
             gazeController.avertGaze(direction: .upLeft, duration: thinkingTimeout)
             idleAnimator.setMood(.thinking)
             emotion.setEmotion(.thinking)
+            // Thinking: contemplative expression
+            if let pose = PoseLibrary.poses["grizzled"] {
+                var p = pose
+                p.blendFactor = 0.4
+                mixer.poseBlender.transition(to: p, duration: 0.5)
+            }
             
         case .emoting:
             // Expression animator handles this externally
@@ -409,6 +435,23 @@ public class AvatarBehaviorEngine {
             if energy > 0.5 {
                 emotion.nudge(arousal: 0.1) // brief arousal spike
             }
+        }
+        
+        // Performative pose cycling during speech
+        // Disney: "pose change on thought change" — we approximate with
+        // timed intervals + energy-triggered changes
+        if now > nextPoseChangeTime {
+            // Cycle through speaking emphasis poses
+            let candidates = PoseLibrary.speakingEmphasis
+            speakingPoseIndex = (speakingPoseIndex + 1) % candidates.count
+            let poseName = candidates[speakingPoseIndex]
+            if let pose = PoseLibrary.poses[poseName] {
+                var p = pose
+                p.blendFactor = Float.random(in: 0.25...0.45)  // vary intensity
+                mixer.poseBlender.transition(to: p, duration: Float.random(in: 0.3...0.6))
+            }
+            // Next change: 3-6 seconds (like thought segments)
+            nextPoseChangeTime = now + Double.random(in: 3.0...6.0)
         }
         
         // Research (Microsoft): Speakers look away ~60% of time

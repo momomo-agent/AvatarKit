@@ -21,6 +21,9 @@ public class AvatarAnimationMixer {
     /// The idle animator source. Provides blinks, breathing, head motion, expressions.
     public var idleAnimator: AvatarIdleAnimator?
     
+    /// The performative pose blender. Provides semantic expression overlays.
+    public let poseBlender = PoseBlender()
+    
     /// Manual blendshape overrides. These always win.
     public var manualOverrides: [String: Float] = [:]
     
@@ -69,6 +72,18 @@ public class AvatarAnimationMixer {
             merged[key] = value
         }
         
+        // Layer 1.5: Performative pose (additive on idle, before lip sync)
+        // These are Apple animator-tuned expression presets that add
+        // semantic expression (happy/thinking/surprised) on top of idle.
+        poseBlender.update(dt: 1.0 / 60.0)  // ~60fps
+        let poseBS = poseBlender.blendshapes()
+        for (key, value) in poseBS {
+            // Additive blend: pose values scale the existing idle value up
+            // For mouth shapes, use lower weight to not fight lip sync
+            let weight: Float = Self.mouthBlendshapes.contains(key) ? 0.3 : 0.6
+            merged[key] = (merged[key] ?? 0) + value * weight
+        }
+        
         // Layer 2: Lip sync (mouth region)
         // Research (Filmic Worlds): ARKit blendshapes are a SYSTEM, not independent.
         // When lip sync is active, mouth-region idle values should be suppressed,
@@ -112,12 +127,13 @@ public class AvatarAnimationMixer {
         // Remove near-zero
         merged = merged.filter { $0.value > 0.001 }
         
-        // Head rotation: pass quaternion directly to avoid euler conversion jitter
-        let q = manualHeadRotation ?? idleHeadRotation
+        // Head rotation: compose idle + pose neck orientation
+        let poseNeck = poseBlender.neckOrientation()
+        let composedRotation = manualHeadRotation ?? simd_mul(idleHeadRotation, poseNeck)
 
         let tracking = AvatarFaceTracking(
             blendshapes: merged,
-            rawQuaternion: q,
+            rawQuaternion: composedRotation,
             headTranslation: idleHeadTranslation
         )
         
