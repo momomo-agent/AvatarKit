@@ -775,28 +775,6 @@ public class AvatarIdleAnimator {
                   * simd_quatf(angle: bodyPitch * rad, axis: SIMD3(1, 0, 0))
                   * simd_quatf(angle: bodyRoll * rad, axis: SIMD3(0, 0, 1))
         
-        // --- Body translation ---
-        // Sway (organic drift) + breathing Y
-        let swaySpeed: Float = isSpeaking ? 0.4 : 0.2
-        bodySwayPhase += SIMD3(dt * swaySpeed * 0.7, dt * swaySpeed * 0.5, dt * swaySpeed * 0.9)
-        bodySwayPhase2 += SIMD3(dt * swaySpeed * 1.3, dt * swaySpeed * 1.1, dt * swaySpeed * 0.6)
-        
-        let swayAmp: Float = isSpeaking ? 0.5 : 0.3
-        let sway1 = SIMD3<Float>(
-            sin(bodySwayPhase.x) * swayAmp,
-            0,
-            sin(bodySwayPhase.z) * swayAmp * 2.0
-        )
-        let sway2 = SIMD3<Float>(
-            sin(bodySwayPhase2.x) * swayAmp * 0.4,
-            0,
-            sin(bodySwayPhase2.z) * swayAmp * 1.0
-        )
-        
-        var bodyTranslation = (sway1 + sway2) * intensity
-        bodyTranslation.y += headDragY * intensity  // breathing Y
-        bodyTranslation.z += headDragZ * intensity  // breathing Z
-        
         // --- Head rotation (relative to body) ---
         // Remove body contribution from head angles so head is additive
         let headOnlyYaw = headYaw - bodyYaw
@@ -807,10 +785,12 @@ public class AvatarIdleAnimator {
                   * simd_quatf(angle: headOnlyPitch * rad, axis: SIMD3(1, 0, 0))
                   * simd_quatf(angle: headOnlyRoll * rad, axis: SIMD3(0, 0, 1))
         
-        // Head translation: neck pivot model (rotation-derived displacement)
-        let neckPivot = SIMD3<Float>(0, -0.5, 0)
-        let rotatedPivot = headQ.act(-neckPivot)
-        let headTranslation = neckPivot + rotatedPivot
+        // Translation: rotation-only for now.
+        // Apple's neckNode (head_JNT) is offset from root_JNT, so rotation
+        // naturally produces spatial displacement — no explicit translation needed.
+        // Body sway is expressed purely through bodyQ roll/yaw.
+        let headTranslation = SIMD3<Float>.zero
+        let bodyTranslation = SIMD3<Float>.zero
         
         onFrame?(bs, headQ, headTranslation, bodyQ, bodyTranslation)
     }
