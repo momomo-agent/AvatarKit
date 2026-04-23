@@ -126,6 +126,7 @@ public class AvatarIdleAnimator {
     // Slow drift targets (alive idle — never truly still)
     private var driftTargetX: Float = 0
     private var driftTargetY: Float = 0
+    private var driftTargetZ: Float = 0
     private var nextDriftTime: TimeInterval = 0
     // Sway phase (layered noise: slow drift + breathing + micro-tremor)
     private var swayPhase: Float = 0
@@ -911,7 +912,7 @@ public class AvatarIdleAnimator {
         bodyPitch = poseCurrentAngles.y * intensity   // forward/back from pose
 
         // Breathing drives body pitch
-        bodyPitch = headDragZ * 0.5 * intensity  // body leans with breath
+        bodyPitch += headDragZ * 0.5 * intensity  // body leans with breath
 
         // Speaking forward lean
         if isSpeaking {
@@ -953,30 +954,44 @@ public class AvatarIdleAnimator {
         // Layer A: Breathing translation (Y rise/fall + Z lean)
         // Real human chest: 3-5mm rise per breath → 0.06-0.1 in Y units
         let breathY = bodyY * 0.25 * intensity    // visible rise/fall
-        let breathZ = bodyZ * 0.12 * intensity    // lean back on inhale
+        let breathZ = bodyZ * 0.5 * intensity     // visible lean back on inhale
 
-        // Layer B: Slow drift (alive idle — never truly still)
-        // Research: human CoP drifts to new position every ~2.3s
-        // Dominant sway frequency ~0.3 Hz, amplitude 3-7mm
+        // Layer B: Rotation-driven body sway (Disney: body follows head intent)
+        // When head turns left, body sways left. When head pitches down, body leans forward.
+        // This creates the "successive breaking of joints" — body follows head, delayed and reduced.
+        // Small random drift layered on top for organic feel.
         swayPhase += dt
         if now > nextDriftTime {
-            driftTargetX = Float.random(in: -0.25...0.25)   // ±5mm real
-            driftTargetY = Float.random(in: -0.06...0.06)   // ±3mm real
+            // Small random perturbation (alive idle — never truly still)
+            driftTargetX = Float.random(in: -0.08...0.08)
+            driftTargetY = Float.random(in: -0.03...0.03)
+            driftTargetZ = Float.random(in: -0.08...0.08)
             nextDriftTime = now + Double.random(in: 2.0...4.0)
         }
+        // Primary driver: head rotation → body translation
+        // headYaw is in degrees; ~15° turn → ~0.3 units sway
+        let rotDrivenX = headYaw * 0.02       // yaw → lateral sway (same direction)
+        let rotDrivenZ = headPitch * 0.025     // pitch down → lean forward (positive Z)
+        let rotDrivenY = abs(headPitch) * 0.003 // any pitch → slight rise (chest lifts)
+
         // Underdamped spring (ratio 0.8) — slight overshoot gives weight
         let driftStiffness: Float = 3.0
         let driftDampingRatio: Float = 0.8
         let driftDamping: Float = 2.0 * sqrt(driftStiffness) * driftDampingRatio
-        spatialXVel += ((driftTargetX - spatialX) * driftStiffness - spatialXVel * driftDamping) * dt
+        let targetX = rotDrivenX + driftTargetX
+        let targetY = rotDrivenY + driftTargetY
+        let targetZ = rotDrivenZ + driftTargetZ
+        spatialXVel += ((targetX - spatialX) * driftStiffness - spatialXVel * driftDamping) * dt
         spatialX += spatialXVel * dt
-        spatialYVel += ((driftTargetY - spatialY) * driftStiffness - spatialYVel * driftDamping) * dt
+        spatialYVel += ((targetY - spatialY) * driftStiffness - spatialYVel * driftDamping) * dt
         spatialY += spatialYVel * dt
+        spatialZVel += ((targetZ - spatialZ) * driftStiffness - spatialZVel * driftDamping) * dt
+        spatialZ += spatialZVel * dt
 
         // Layer C: Pose-driven weight shift (when pose changes, body translates)
         // Roll → X shift (lean left = shift left), Pitch → Z shift
         let poseShiftX = poseCurrentAngles.z * 0.04 * intensity   // roll → X
-        let poseShiftZ = poseCurrentAngles.y * 0.03 * intensity   // pitch → Z
+        let poseShiftZ = poseCurrentAngles.y * 0.08 * intensity   // pitch → Z (amplified)
 
         // Layer D: Speaking emphasis bounce (Y oscillation on beats)
         var emphasisY: Float = 0
@@ -984,34 +999,37 @@ public class AvatarIdleAnimator {
         if beatGesturePhase >= 0 {
             let beatEnvelope = sin(beatGesturePhase * .pi)
             emphasisY = beatEnvelope * 0.08 * intensity    // visible bounce
-            emphasisZ = beatEnvelope * 0.06 * intensity    // forward thrust
+            emphasisZ = beatEnvelope * 0.15 * intensity    // forward thrust on beat
         }
 
         // Layer E: State-driven spatial offset (Disney: body leads emotion)
         var stateZ: Float = 0
         var stateY: Float = 0
         if isSpeaking {
-            stateZ = 0.15 * intensity    // lean forward when speaking
+            stateZ = 0.4 * intensity     // lean forward when speaking
         } else if isListening {
-            stateZ = 0.2 * intensity     // lean in when listening
+            stateZ = 0.5 * intensity     // lean in when listening
         }
         if currentMood == .thinking {
-            stateZ = -0.15 * intensity   // lean back when thinking
+            stateZ = -0.4 * intensity    // lean back when thinking
             stateY = 0.05 * intensity    // sit up slightly
         }
 
         // Compose body translation (all layers)
+        // Scale factor accounts for viewing distance (Z≈-40 in world space)
+        let tScale: Float = 15.0
         let bodyTranslation = SIMD3<Float>(
-            (spatialX + poseShiftX) * intensity,
-            (breathY + spatialY + emphasisY + stateY) * intensity,
-            (breathZ + spatialZ + poseShiftZ + emphasisZ + stateZ) * intensity
+            (spatialX + poseShiftX) * intensity * tScale,
+            (breathY + spatialY + emphasisY + stateY) * intensity * tScale,
+            (breathZ + spatialZ + poseShiftZ + emphasisZ + stateZ) * intensity * tScale
         )
 
         // Head translation: offset from body (successive breaking of joints)
-        // Head lags behind body — Disney: 2-3 frame delay at 60fps
-        let headLagX = spatialXVel * -0.06  // head trails body sway
-        let headLagY = headDragYVel * -0.04 // head trails body breathing
-        let headLagZ = spatialZVel * -0.04  // head trails forward/back
+        // Head lags behind body sway — the spring velocity tells us how fast
+        // the body is moving, so the head drags opposite to that motion.
+        let headLagX = spatialXVel * -0.08 * tScale
+        let headLagY = headDragYVel * -0.04 * tScale
+        let headLagZ = spatialZVel * -0.06 * tScale
         let headTranslation = SIMD3<Float>(headLagX, headLagY, headLagZ)
 
         onFrame?(bs, headQ, headTranslation, bodyQ, bodyTranslation)

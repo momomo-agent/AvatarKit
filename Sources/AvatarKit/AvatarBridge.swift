@@ -148,7 +148,13 @@ public final class AvatarBridge {
         guard let animoji else { return }
         let obj = animoji as AnyObject
 
-        let data = TrackingDataBuilder.build(from: tracking)
+        // Merge bodyTranslation into headTranslation before building buffer,
+        // so Apple's updatePose applies the combined position in one shot.
+        var merged = tracking
+        if let bodyT = tracking.bodyTranslation {
+            merged.headTranslation = tracking.headTranslation + bodyT
+        }
+        let data = TrackingDataBuilder.build(from: merged)
 
         // --- Verification logging ---
         verifyCallCount += 1
@@ -182,12 +188,6 @@ public final class AvatarBridge {
            let imp = class_getMethodImplementation(type(of: obj), updateSel) {
             typealias UpdateFunc = @convention(c) (AnyObject, Selector, NSData, Bool) -> Void
             unsafeBitCast(imp, to: UpdateFunc.self)(obj, updateSel, data as NSData, true)
-        }
-
-        // Manual translation (updatePose doesn't handle it in world mode)
-        let t = tracking.headTranslation
-        if t.x != 0 || t.y != 0 || t.z != 0 {
-            setRootJointPosition(t)
         }
     }
     
@@ -245,7 +245,7 @@ public final class AvatarBridge {
             }
         }
     }
-    
+
     /// Apply a preset expression.
     public func applyPreset(_ preset: ExpressionPreset, pitch: Float = 0, yaw: Float = 0) {
         applyTracking(preset.tracking(pitch: pitch, yaw: yaw))
