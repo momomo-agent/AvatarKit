@@ -103,6 +103,7 @@ public class AvatarBehaviorEngine {
     private var gesturePitch: Float = 0
     private var gestureYaw: Float = 0
     private var gestureRoll: Float = 0
+    private var gestureBlendshapes: [String: Float] = [:]
     
     // Performative pose scheduling
     private var nextPoseChangeTime: TimeInterval = 0
@@ -144,6 +145,9 @@ public class AvatarBehaviorEngine {
             self?.gestureYaw = yaw
             self?.gestureRoll = roll
         }
+        headGesture.onBlendshapes = { [weak self] bs in
+            self?.gestureBlendshapes = bs
+        }
         
         // Override mixer's onFrame to add gaze + gesture
         mixer.onFrame = { [weak self] tracking in
@@ -173,6 +177,11 @@ public class AvatarBehaviorEngine {
             let baseQ = merged.rawQuaternion ?? merged.headRotation.quaternion
             merged.rawQuaternion = baseQ * extraQ
             
+            // Add gesture secondary blendshapes (Disney: secondary action)
+            for (key, value) in self.gestureBlendshapes {
+                merged.blendshapes[key] = (merged.blendshapes[key] ?? 0) + value
+            }
+
             // Add emotion blendshapes (continuous valence-arousal)
             let emotionBS = self.emotion.update(
                 dt: Float(CACurrentMediaTime() - self.lastTime),
