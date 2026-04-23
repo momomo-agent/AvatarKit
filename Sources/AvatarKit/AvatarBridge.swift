@@ -402,6 +402,75 @@ public final class AvatarBridge {
         unsafeBitCast(imp, to: F.self)(obj, sel, pos)
     }
     
+    // MARK: - Head Projection
+
+    /// Read the head node's bounding box (min, max) in local space.
+    /// Returns nil if headNode doesn't respond to boundingBox.
+    public func getHeadBoundingBox() -> (min: SIMD3<Float>, max: SIMD3<Float>)? {
+        guard let node = headNode else { return nil }
+        let obj = node as AnyObject
+
+        // VFXNode/SCNNode: - (BOOL)getBoundingBoxMin:(SCNVector3 *)min max:(SCNVector3 *)max
+        let sel = NSSelectorFromString("getBoundingBoxMin:max:")
+        guard obj.responds(to: sel),
+              let imp = obj.method(for: sel) else { return nil }
+
+        var bMin = SIMD4<Float>.zero
+        var bMax = SIMD4<Float>.zero
+        typealias F = @convention(c) (AnyObject, Selector, UnsafeMutablePointer<SIMD4<Float>>, UnsafeMutablePointer<SIMD4<Float>>) -> Bool
+        let ok = unsafeBitCast(imp, to: F.self)(obj, sel, &bMin, &bMax)
+        guard ok else { return nil }
+
+        return (SIMD3(bMin.x, bMin.y, bMin.z), SIMD3(bMax.x, bMax.y, bMax.z))
+    }
+
+    /// Project a point relative to the avatar's root joint into AVTView coordinates.
+    ///
+    /// `offset` is in scene space: +x = right, +y = up, +z = toward camera.
+    /// Pass .zero to get the head center. Pass e.g. (5, 5, 0) for top-right.
+    /// Returns nil if nodes or view are unavailable.
+    public func projectPoint(offset: SIMD3<Float> = .zero) -> CGPoint? {
+        guard let view = avtView,
+              view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+
+        guard let rootPos = getRootJointPosition() else { return nil }
+        guard let camTransform = getCameraWorldTransform() else { return nil }
+
+        let worldPos = SIMD4<Float>(rootPos.x + offset.x, rootPos.y + offset.y, rootPos.z + offset.z, 1.0)
+
+        // View matrix = inverse of camera world transform
+        let viewMatrix = camTransform.inverse
+        let cameraSpace = viewMatrix * worldPos
+
+        guard cameraSpace.z < -0.001 else { return nil }
+
+        let fov: Float = 30.0 * .pi / 180.0
+        let aspect = Float(view.bounds.width / view.bounds.height)
+        let tanHalfFov = tan(fov / 2.0)
+
+        let ndcX = cameraSpace.x / (-cameraSpace.z * tanHalfFov * aspect)
+        let ndcY = cameraSpace.y / (-cameraSpace.z * tanHalfFov)
+
+        let viewX = CGFloat((1.0 + ndcX) / 2.0) * view.bounds.width
+        let viewY = CGFloat((1.0 - ndcY) / 2.0) * view.bounds.height
+
+        return CGPoint(x: viewX, y: viewY)
+    }
+
+    /// Project the head's bounding box top-right corner into AVTView coordinates.
+    /// Uses the actual head mesh bounding box for precise positioning.
+    /// Returns (projected point, depth scale relative to first call) or nil.
+    public func projectHeadTopRight() -> CGPoint? {
+        guard let bbox = getHeadBoundingBox() else { return nil }
+        let cx = (bbox.min.x + bbox.max.x) / 2
+        let cy = (bbox.min.y + bbox.max.y) / 2
+        let cz = (bbox.min.z + bbox.max.z) / 2
+        // x: 25% inward from max toward center, y: 50% inward
+        let x = cx + (bbox.max.x - cx) * 0.75
+        let y = (cy + bbox.max.y) / 2
+        return projectPoint(offset: SIMD3<Float>(x, y, cz))
+    }
+
     // MARK: - Apple Buffer Comparison
     
     /// Compare our tracking buffer with Apple's AVTFaceTrackingInfo output.
