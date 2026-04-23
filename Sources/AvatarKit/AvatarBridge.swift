@@ -4,6 +4,9 @@ import UIKit
 import ObjectiveC
 import SceneKit
 import ARKit
+import os.log
+
+private let brLog = OSLog(subsystem: "com.momomo.avatarkit", category: "bridge")
 
 // MARK: - Avatar Bridge
 
@@ -122,12 +125,8 @@ public final class AvatarBridge {
     ///
     /// Falls back to `updatePoseWithFaceTrackingData:applySmoothing:` (NSData wrapper)
     /// if the direct methods are unavailable.
-    /// Debug counter for periodic logging
-    private var debugApplyCount = 0
-    /// Stored ARFrame for Apple comparison (set via applyTracking(_:frame:))
+    /// Stored ARFrame for Apple comparison
     private var lastFrame: ARFrame?
-    /// Pre-_applyHeadPose tracking data for accurate CMP comparison
-    private var preApplyTracking: AvatarFaceTracking?
     
     public func applyTracking(_ tracking: AvatarFaceTracking) {
         applyTrackingInternal(tracking)
@@ -139,140 +138,56 @@ public final class AvatarBridge {
         applyTrackingInternal(tracking)
     }
     
+    /// Verification: track calls per frame and blendshape stability
+    private var verifyCallCount = 0
+    private var verifyFrameTime: TimeInterval = 0
+    private var verifyCallsThisFrame = 0
+    private var verifyPrevBS: [String: Float] = [:]
+
     private func applyTrackingInternal(_ tracking: AvatarFaceTracking) {
         guard let animoji else { return }
         let obj = animoji as AnyObject
-        
+
         let data = TrackingDataBuilder.build(from: tracking)
-        
-        debugApplyCount += 1
-        let shouldLog = debugApplyCount % 60 == 1
-        
-        // Save pre-_applyHeadPose tracking for accurate CMP comparison
-        preApplyTracking = tracking
-        
-        // One-time log of pov.worldTransform
-        if debugApplyCount == 1, let pov = scenePointOfView {
-            let wt = (pov as AnyObject).value(forKeyPath: "worldTransform") as? SCNMatrix4
-            if let wt {
-//                print("[POV] worldTransform:")
-//                print("[POV]   col0=(\(wt.m11), \(wt.m21), \(wt.m31), \(wt.m41))")
-//                print("[POV]   col1=(\(wt.m12), \(wt.m22), \(wt.m32), \(wt.m42))")
-//                print("[POV]   col2=(\(wt.m13), \(wt.m23), \(wt.m33), \(wt.m43))")
-//                print("[POV]   col3=(\(wt.m14), \(wt.m24), \(wt.m34), \(wt.m44))")
+
+        // --- Verification logging ---
+        verifyCallCount += 1
+        let now = CACurrentMediaTime()
+        if now - verifyFrameTime < 0.001 {
+            verifyCallsThisFrame += 1
+        } else {
+            if verifyCallsThisFrame > 1 {
+                os_log(.default, log: brLog, "[VERIFY] MULTI-CALL: %{public}d calls in one frame!", verifyCallsThisFrame)
             }
-            let t = (pov as AnyObject).value(forKeyPath: "transform") as? SCNMatrix4
-            if let t {
-//                print("[POV] transform:")
-//                print("[POV]   col0=(\(t.m11), \(t.m21), \(t.m31), \(t.m41))")
-//                print("[POV]   col1=(\(t.m12), \(t.m22), \(t.m32), \(t.m42))")
-//                print("[POV]   col2=(\(t.m13), \(t.m23), \(t.m33), \(t.m43))")
-//                print("[POV]   col3=(\(t.m14), \(t.m24), \(t.m34), \(t.m44))")
-            }
-//            print("[POV] scenePointOfView class: \(type(of: pov))")
+            verifyCallsThisFrame = 1
+            verifyFrameTime = now
         }
-        // === DEBUG POINT D-pre: Before Apple calls ===
-        if shouldLog {
-            if let rootPos = getRootJointPosition() {
-//                print("[D-PRE] rootJointPos=(\(String(format: "%.4f,%.4f,%.4f", rootPos.x, rootPos.y, rootPos.z)))")
+
+        if verifyCallCount % 10 == 0 {
+            // Check max blendshape delta
+            var maxD: Float = 0; var maxK = ""
+            for (k, v) in tracking.blendshapes {
+                let d = abs(v - (verifyPrevBS[k] ?? 0))
+                if d > maxD && k != "eyeBlinkLeft" && k != "eyeBlinkRight" { maxD = d; maxK = k }
             }
-            if let neckQ = getNeckOrientation() {
-//                print("[D-PRE] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
+            if maxD > 0.05 {
+                os_log(.default, log: brLog, "[VERIFY] DELTA %{public}@=%.3f", maxK, maxD)
             }
-            if let wt = getCameraWorldTransform() {
-                let camQ = simd_quatf(wt)
-//                print("[D-PRE] camWT.pos=(\(String(format: "%.3f,%.3f,%.3f", wt.columns.3.x, wt.columns.3.y, wt.columns.3.z)))")
-//                print("[D-PRE] camWT.quat=(\(String(format: "%.4f,%.4f,%.4f,%.4f", camQ.imag.x, camQ.imag.y, camQ.imag.z, camQ.real)))")
-                // Print full matrix for rotation analysis
-//                print("[D-PRE] camWT.col0=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.0.x, wt.columns.0.y, wt.columns.0.z)))")
-//                print("[D-PRE] camWT.col1=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.1.x, wt.columns.1.y, wt.columns.1.z)))")
-//                print("[D-PRE] camWT.col2=(\(String(format: "%.4f,%.4f,%.4f", wt.columns.2.x, wt.columns.2.y, wt.columns.2.z)))")
-            }
-//            print("[D-PRE] pov=\(cameraNode == nil ? "nil" : "exists") coordSpace=\(tracking.coordinateSpace)")
+            verifyPrevBS = tracking.blendshapes
         }
-        
-        // Primary: direct struct pointer calls (avoids NSData overhead)
-        var applied = false
-        
-        data.withUnsafeBytes { raw in
-            guard let ptr = raw.baseAddress else { return }
-            
-            // Apply blendshapes
-            let blendSel = NSSelectorFromString("_applyBlendShapesWithTrackingData:")
-            if obj.responds(to: blendSel),
-               let imp = class_getMethodImplementation(type(of: obj), blendSel) {
-                typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer) -> Void
-                unsafeBitCast(imp, to: Func.self)(obj, blendSel, ptr)
-                applied = true
-            }
-            
-            // Apply head pose
-            // _applyHeadPose for cameraSpace=1 does: neckQ = inv(pov) × trackingQ
-            // With pov=nil (identity): neckQ = trackingQ directly.
-            // - .world (cameraSpace=0): uses quaternion directly ✓
-            // - .camera: portrait-corrected quaternion, pov=nil works ✓
-            // - .appleAR: quaternion is inv(cam)×face (~90° Z), pov=nil → 90° ✗
-            //   Fix: use _applyBlendShapes only, then set neckNode/rootJoint directly
-            //   with the face's world-space quaternion (cam × inv(cam) × face = face).
-            if tracking.trackingMode == .appleAR {
-                if let frame = lastFrame, let q = tracking.rawQuaternion {
-                    // Convert camera-space quaternion back to world space
-                    let camQ = simd_quatf(frame.camera.transform)
-                    let worldQ = camQ * q
-                    setNeckOrientation(worldQ)
-                    // Convert camera-space translation to world space
-                    // headTranslation is already scaled by AvatarFaceTracking+ARKit
-                    let t = tracking.headTranslation
-                    let worldT = camQ.act(t)
-                    setRootJointPosition(worldT)
-                }
-                // No frame → skip head pose entirely (don't fall through to _applyHeadPose
-                // which would show 90° rotated for one frame)
-            } else {
-                let poseSel = NSSelectorFromString("_applyHeadPoseWithTrackingData:gazeCorrection:pointOfView:")
-                if obj.responds(to: poseSel),
-                   let imp = class_getMethodImplementation(type(of: obj), poseSel) {
-                    typealias Func = @convention(c) (AnyObject, Selector, UnsafeRawPointer, Bool, AnyObject?) -> Void
-                    unsafeBitCast(imp, to: Func.self)(obj, poseSel, ptr, false, nil)
-                }
-                
-                // Apple's _applyHeadPose in world mode (cameraSpace=0) does NOT apply
-                // translation — it only sets neck orientation. We must apply translation
-                // manually for idle animation spatial movement to work.
-                // Note: headTranslation is already in avatar scene units (pre-scaled
-                // by AvatarFaceTracking+ARKit or the idle animator).
-                let t = tracking.headTranslation
-                if t.x != 0 || t.y != 0 || t.z != 0 {
-                    setRootJointPosition(t)
-                }
-            }
+
+        // Use Apple's unified method — avoids ghosting from separate blendshape + headPose calls
+        let updateSel = NSSelectorFromString("updatePoseWithFaceTrackingData:applySmoothing:")
+        if obj.responds(to: updateSel),
+           let imp = class_getMethodImplementation(type(of: obj), updateSel) {
+            typealias UpdateFunc = @convention(c) (AnyObject, Selector, NSData, Bool) -> Void
+            unsafeBitCast(imp, to: UpdateFunc.self)(obj, updateSel, data as NSData, true)
         }
-        
-        // === DEBUG POINT D-post: After Apple calls ===
-        if shouldLog {
-            if let rootPos = getRootJointPosition() {
-//                print("[D-POST] rootJointPos=(\(String(format: "%.4f,%.4f,%.4f", rootPos.x, rootPos.y, rootPos.z)))")
-            }
-            if let neckQ = getNeckOrientation() {
-//                print("[D-POST] neckQ=(\(String(format: "%.4f,%.4f,%.4f,%.4f", neckQ.imag.x, neckQ.imag.y, neckQ.imag.z, neckQ.real)))")
-            }
-//            print("[D-POST] ---")
-        }
-        
-        // Apple buffer comparison (every 60 frames)
-        if shouldLog, let frame = lastFrame, let preTracking = preApplyTracking {
-            let isWorld = tracking.coordinateSpace == .world
-            compareWithApple(frame: frame, constrainHeadPose: isWorld, ourTracking: preTracking)
-        }
-        
-        // Fallback: NSData wrapper
-        if !applied {
-            let sel = NSSelectorFromString("updatePoseWithFaceTrackingData:applySmoothing:")
-            if obj.responds(to: sel),
-               let imp = class_getMethodImplementation(type(of: obj), sel) {
-                typealias UpdateFunc = @convention(c) (AnyObject, Selector, NSData, Bool) -> Void
-                unsafeBitCast(imp, to: UpdateFunc.self)(obj, sel, data as NSData, false)
-            }
+
+        // Manual translation (updatePose doesn't handle it in world mode)
+        let t = tracking.headTranslation
+        if t.x != 0 || t.y != 0 || t.z != 0 {
+            setRootJointPosition(t)
         }
     }
     
