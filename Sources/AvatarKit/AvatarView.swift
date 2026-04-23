@@ -47,6 +47,7 @@ public struct AvatarView: UIViewRepresentable {
         }
         
         view.backgroundColor = backgroundColor
+        view.clipsToBounds = false
         return view
     }
     
