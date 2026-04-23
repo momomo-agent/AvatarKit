@@ -49,12 +49,20 @@ public class AvatarIdleAnimator {
                     speakWindDownPhase = 0  // start "settling after speaking"
                 }
                 prevSpeakingState = oldValue
+                // Trigger pose change on state transition
+                nextPoseChangeTime = 0
             }
         }
     }
     
     /// Whether the character is currently listening to someone.
-    public var isListening = false
+    public var isListening = false {
+        didSet {
+            if isListening != oldValue {
+                nextPoseChangeTime = 0  // trigger pose change
+            }
+        }
+    }
     
     /// Audio energy (RMS amplitude, 0-1).
     public var audioEnergy: Float = 0
@@ -105,19 +113,6 @@ public class AvatarIdleAnimator {
     private var headDragZ: Float = 0      // head's delayed follow of bodyZ
     private var headDragZVel: Float = 0
     
-    // --- Body sway (organic whole-body drift, independent of head rotation) ---
-    private var bodySwayPhase: SIMD3<Float> = SIMD3(
-        Float.random(in: 0...(.pi * 2)),
-        Float.random(in: 0...(.pi * 2)),
-        Float.random(in: 0...(.pi * 2))
-    )
-    // Second harmonic for organic feel (not pure sine)
-    private var bodySwayPhase2: SIMD3<Float> = SIMD3(
-        Float.random(in: 0...(.pi * 2)),
-        Float.random(in: 0...(.pi * 2)),
-        Float.random(in: 0...(.pi * 2))
-    )
-    
     // --- Saccade ---
     private var nextSaccadeTime: TimeInterval = 0
     private var saccadeTarget: SIMD2<Float> = .zero
@@ -144,8 +139,15 @@ public class AvatarIdleAnimator {
     // --- Asymmetry ---
     private let leftEmotionBias: Float = 1.08
     
-    // --- Weight Shift (4-8s cycle) ---
-    private var weightShiftPhase: Float = 0
+    // --- Pose System (replaces sin-wave weight shift) ---
+    // Inspired by TalkingHead: discrete poses with spring-damped transitions.
+    // Each pose = body rotation angles. Mood/state drives pose selection.
+    private var poseCurrentAngles = SIMD3<Float>.zero  // current body (yaw, pitch, roll)
+    private var poseTargetAngles = SIMD3<Float>.zero   // target body angles
+    private var poseVelocity = SIMD3<Float>.zero       // spring velocity
+    private var poseWeightOnLeft = true                 // which side has weight
+    private var nextPoseChangeTime: TimeInterval = 0
+    private var poseSettledTime: TimeInterval = 0       // how long in current pose
     
     // --- Fidgets ---
     private var nextFidgetTime: TimeInterval = 0
@@ -192,6 +194,128 @@ public class AvatarIdleAnimator {
         nextSighTime = Double.random(in: 30...90)
         nextHeadTargetTime = Double.random(in: 2...5)
         nextPoseDriftTime = Double.random(in: 20...40)
+        nextPoseChangeTime = Double.random(in: 4...8)
+        // Start with a random pose
+        poseTargetAngles = pickNextPose()
+        poseCurrentAngles = poseTargetAngles
+    }
+    
+    // MARK: - Pose System
+    
+    /// Body pose presets. Each is (yaw°, pitch°, roll°) for root_JNT.
+    /// Inspired by TalkingHead's standing poses, adapted for head-only rig.
+    /// Weight shift is expressed through roll (lean) + yaw (turn with lean).
+    private struct BodyPose {
+        let yaw: Float    // turn left/right
+        let pitch: Float  // lean forward/back
+        let roll: Float   // lean left/right
+        let name: String
+        
+        // Neutral poses (weight centered)
+        static let neutral = BodyPose(yaw: 0, pitch: 0, roll: 0, name: "neutral")
+        
+        // Weight on left foot — lean left
+        static let leanLeft = BodyPose(yaw: -1.5, pitch: 0, roll: 3.0, name: "leanLeft")
+        static let leanLeftDeep = BodyPose(yaw: -2.5, pitch: 0.5, roll: 4.5, name: "leanLeftDeep")
+        
+        // Weight on right foot — lean right
+        static let leanRight = BodyPose(yaw: 1.5, pitch: 0, roll: -3.0, name: "leanRight")
+        static let leanRightDeep = BodyPose(yaw: 2.5, pitch: 0.5, roll: -4.5, name: "leanRightDeep")
+        
+        // Engaged (speaking/listening) — forward lean
+        static let engagedLeft = BodyPose(yaw: -1.0, pitch: 2.5, roll: 2.0, name: "engagedLeft")
+        static let engagedRight = BodyPose(yaw: 1.0, pitch: 2.5, roll: -2.0, name: "engagedRight")
+        static let engagedCenter = BodyPose(yaw: 0, pitch: 3.0, roll: 0, name: "engagedCenter")
+        
+        // Relaxed — slight lean back
+        static let relaxedLeft = BodyPose(yaw: -2.0, pitch: -1.5, roll: 3.5, name: "relaxedLeft")
+        static let relaxedRight = BodyPose(yaw: 2.0, pitch: -1.5, roll: -3.5, name: "relaxedRight")
+        
+        // Thinking — head up, slight lean back
+        static let thinkingLeft = BodyPose(yaw: -3.0, pitch: -2.0, roll: 2.0, name: "thinkingLeft")
+        static let thinkingRight = BodyPose(yaw: 3.0, pitch: -2.0, roll: -2.0, name: "thinkingRight")
+        
+        var angles: SIMD3<Float> { SIMD3(yaw, pitch, roll) }
+    }
+    
+    /// Pick next pose based on current state and mood.
+    /// Returns target angles (yaw, pitch, roll) in degrees.
+    private func pickNextPose() -> SIMD3<Float> {
+        let pose: BodyPose
+        
+        if isSpeaking {
+            // Speaking: mostly engaged poses, occasional weight shift
+            let r = Float.random(in: 0...1)
+            if r < 0.35 {
+                pose = poseWeightOnLeft ? .engagedLeft : .engagedRight
+            } else if r < 0.6 {
+                pose = .engagedCenter
+            } else {
+                // Weight shift while speaking (less common)
+                poseWeightOnLeft.toggle()
+                pose = poseWeightOnLeft ? .leanLeft : .leanRight
+            }
+        } else if isListening {
+            // Listening: engaged + occasional nod-ready poses
+            let r = Float.random(in: 0...1)
+            if r < 0.5 {
+                pose = poseWeightOnLeft ? .engagedLeft : .engagedRight
+            } else if r < 0.8 {
+                pose = .engagedCenter
+            } else {
+                poseWeightOnLeft.toggle()
+                pose = poseWeightOnLeft ? .leanLeft : .leanRight
+            }
+        } else if currentMood == .thinking {
+            // Thinking: lean back, look up
+            let r = Float.random(in: 0...1)
+            if r < 0.5 {
+                pose = poseWeightOnLeft ? .thinkingLeft : .thinkingRight
+            } else {
+                poseWeightOnLeft.toggle()
+                pose = poseWeightOnLeft ? .thinkingLeft : .thinkingRight
+            }
+        } else {
+            // Idle: full variety, weight shifts are primary
+            let r = Float.random(in: 0...1)
+            if r < 0.25 {
+                poseWeightOnLeft.toggle()
+                pose = poseWeightOnLeft ? .leanLeft : .leanRight
+            } else if r < 0.4 {
+                pose = poseWeightOnLeft ? .leanLeftDeep : .leanRightDeep
+            } else if r < 0.55 {
+                pose = .neutral
+            } else if r < 0.7 {
+                pose = poseWeightOnLeft ? .relaxedLeft : .relaxedRight
+            } else if r < 0.85 {
+                poseWeightOnLeft.toggle()
+                pose = poseWeightOnLeft ? .leanLeft : .leanRight
+            } else {
+                // Rare: deep lean to opposite side
+                poseWeightOnLeft.toggle()
+                pose = poseWeightOnLeft ? .leanLeftDeep : .leanRightDeep
+            }
+        }
+        
+        // Add small random variation so same pose name doesn't look identical
+        return pose.angles + SIMD3(
+            Float.random(in: -0.5...0.5),
+            Float.random(in: -0.3...0.3),
+            Float.random(in: -0.3...0.3)
+        )
+    }
+    
+    /// How long until next pose change, based on state.
+    private func nextPoseInterval() -> Double {
+        if isSpeaking {
+            return Double.random(in: 3.0...6.0)   // moderate changes while talking
+        } else if isListening {
+            return Double.random(in: 4.0...8.0)   // less frequent, attentive
+        } else if currentMood == .thinking {
+            return Double.random(in: 5.0...10.0)  // slow, contemplative
+        } else {
+            return Double.random(in: 4.0...8.0)   // natural idle rhythm
+        }
     }
     
     public func start() {
@@ -545,13 +669,28 @@ public class AvatarIdleAnimator {
             }
             
             // ═══════════════════════════════════════════
-            // Layer 4b: Weight Shift (rotation only, translation derived later)
+            // Layer 4b: Pose System (replaces sin-wave weight shift)
+            // Discrete poses with spring-damped transitions.
+            // Like TalkingHead: weight shifts between left/right foot,
+            // with mood-driven pose selection.
             // ═══════════════════════════════════════════
-            weightShiftPhase += dt * 2 * .pi / 6.0
-            if weightShiftPhase > 2 * .pi { weightShiftPhase -= 2 * .pi }
-            let swayAmount = sin(weightShiftPhase) * 0.8
-            headRoll += swayAmount * 1.5
-            headYaw += swayAmount * 0.5
+            if now > nextPoseChangeTime {
+                poseTargetAngles = pickNextPose()
+                nextPoseChangeTime = now + nextPoseInterval()
+            }
+            
+            // Spring-damped transition to target pose
+            // Low stiffness = slow, organic weight shift (not snappy)
+            let poseStiffness: Float = 3.0   // slow, deliberate
+            let poseDamping: Float = 2.0 * sqrt(poseStiffness) * 0.9  // slightly underdamped for life
+            let poseForce = (poseTargetAngles - poseCurrentAngles) * poseStiffness
+            let poseDamp = -poseVelocity * poseDamping
+            poseVelocity += (poseForce + poseDamp) * dt
+            poseCurrentAngles += poseVelocity * dt
+            
+            // Feed pose into head rotation (body lean affects head)
+            headRoll += poseCurrentAngles.z * 0.5   // head follows body lean
+            headYaw += poseCurrentAngles.x * 0.3    // head follows body turn
         }
         
         // ═══════════════════════════════════════════
@@ -745,7 +884,7 @@ public class AvatarIdleAnimator {
         let rad = Float.pi / 180.0
         
         // --- Body rotation ---
-        // Weight shift: lean left/right (roll) + slight yaw
+        // Pose system: discrete poses with spring transitions (replaces sin-wave)
         // Breathing: slight pitch oscillation
         // Speaking: forward lean (pitch)
         // Head motion coupling: big head turns pull body slightly
@@ -753,9 +892,10 @@ public class AvatarIdleAnimator {
         var bodyPitch: Float = 0
         var bodyRoll: Float = 0
         
-        // Weight shift drives body lean (primary body motion)
-        bodyRoll = sin(weightShiftPhase) * 3.0 * intensity   // visible lean
-        bodyYaw = sin(weightShiftPhase) * 1.5 * intensity    // slight turn with lean
+        // Pose system drives body lean (primary body motion)
+        bodyRoll = poseCurrentAngles.z * intensity    // lean from pose
+        bodyYaw = poseCurrentAngles.x * intensity     // turn from pose
+        bodyPitch = poseCurrentAngles.y * intensity   // forward/back from pose
         
         // Breathing drives body pitch
         bodyPitch = headDragZ * 0.5 * intensity  // body leans with breath
