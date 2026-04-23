@@ -104,6 +104,7 @@ public class AvatarBehaviorEngine {
     private var gestureYaw: Float = 0
     private var gestureRoll: Float = 0
     private var gestureBlendshapes: [String: Float] = [:]
+    private var gestureTranslation: SIMD3<Float> = .zero
     
     // Performative pose scheduling
     private var nextPoseChangeTime: TimeInterval = 0
@@ -148,6 +149,9 @@ public class AvatarBehaviorEngine {
         headGesture.onBlendshapes = { [weak self] bs in
             self?.gestureBlendshapes = bs
         }
+        headGesture.onTranslation = { [weak self] t in
+            self?.gestureTranslation = t
+        }
         
         // Override mixer's onFrame to add gaze + gesture
         mixer.onFrame = { [weak self] tracking in
@@ -180,6 +184,11 @@ public class AvatarBehaviorEngine {
             // Add gesture secondary blendshapes (Disney: secondary action)
             for (key, value) in self.gestureBlendshapes {
                 merged.blendshapes[key] = (merged.blendshapes[key] ?? 0) + value
+            }
+
+            // Add gesture spatial translation (Disney: move through space)
+            if self.gestureTranslation != .zero {
+                merged.headTranslation = merged.headTranslation + self.gestureTranslation
             }
 
             // Add emotion blendshapes (continuous valence-arousal)

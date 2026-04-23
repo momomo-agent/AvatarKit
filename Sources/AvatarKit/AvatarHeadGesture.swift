@@ -211,6 +211,9 @@ public class AvatarHeadGesture {
     /// Called every frame with secondary blendshape deltas.
     public var onBlendshapes: ((_ blendshapes: [String: Float]) -> Void)?
 
+    /// Called every frame with spatial translation (x, y, z) in avatar scene units.
+    public var onTranslation: ((_ translation: SIMD3<Float>) -> Void)?
+
     private var displayLink: CADisplayLink?
     private var lastTime: TimeInterval = 0
 
@@ -248,117 +251,104 @@ public class AvatarHeadGesture {
         // ── Agreement ──
 
         case .nod:
-            // Disney nod: anticipation up 3°, then down 10°, slow return.
             return (
-                pitch: GestureCurve(amplitude: -10, oscillations: 1, duration: 0.45, asymmetry: 0.3, anticipation: 0.3, overshoot: 0.08),
-                yaw: GestureCurve(amplitude: 2, oscillations: 1, duration: 0.45, asymmetry: 0.35), // arc: slight yaw during nod
+                pitch: GestureCurve(amplitude: -14, oscillations: 1, duration: 0.45, asymmetry: 0.3, anticipation: 0.3, overshoot: 0.1),
+                yaw: GestureCurve(amplitude: 3, oscillations: 1, duration: 0.45, asymmetry: 0.35),
                 roll: GestureCurve(),
                 duration: 0.45
             )
         case .doubleNod:
-            // Two nods, 2nd is 80% of 1st (declination).
             return (
-                pitch: GestureCurve(amplitude: -8, oscillations: 2, duration: 0.7, asymmetry: 0.3, anticipation: 0.25, declination: 0.8),
-                yaw: GestureCurve(),
+                pitch: GestureCurve(amplitude: -12, oscillations: 2, duration: 0.7, asymmetry: 0.3, anticipation: 0.25, declination: 0.8),
+                yaw: GestureCurve(amplitude: 2, oscillations: 1, duration: 0.7, asymmetry: 0.5), // arc: slight yaw during nod
                 roll: GestureCurve(),
                 duration: 0.7
             )
         case .enthusiasticNod:
-            // Fast triple nod with bounce, declination.
             return (
-                pitch: GestureCurve(amplitude: -9, oscillations: 3, duration: 0.8, asymmetry: 0.25, anticipation: 0.2, overshoot: 0.12, declination: 0.75),
-                yaw: GestureCurve(),
-                roll: GestureCurve(amplitude: 2, oscillations: 1, duration: 0.8, asymmetry: 0.5), // slight lean in
+                pitch: GestureCurve(amplitude: -14, oscillations: 3, duration: 0.8, asymmetry: 0.25, anticipation: 0.2, overshoot: 0.15, declination: 0.75),
+                yaw: GestureCurve(amplitude: 3, oscillations: 1, duration: 0.8, asymmetry: 0.5),
+                roll: GestureCurve(amplitude: 3, oscillations: 1, duration: 0.8, asymmetry: 0.5),
                 duration: 0.8
             )
         case .reluctantNod:
-            // Slow, heavy single nod. Long release.
             return (
-                pitch: GestureCurve(amplitude: -6, oscillations: 1, duration: 0.9, asymmetry: 0.45),
-                yaw: GestureCurve(amplitude: -3, oscillations: 1, duration: 0.9, asymmetry: 0.5), // slight look away
+                pitch: GestureCurve(amplitude: -8, oscillations: 1, duration: 1.0, asymmetry: 0.45),
+                yaw: GestureCurve(amplitude: -4, oscillations: 1, duration: 1.0, asymmetry: 0.5),
                 roll: GestureCurve(),
-                duration: 0.9
+                duration: 1.0
             )
 
         // ── Disagreement ──
 
         case .shake:
-            // 3 oscillations, symmetric, with anticipation.
             return (
-                pitch: GestureCurve(amplitude: -2, oscillations: 1, duration: 1.0, asymmetry: 0.3), // slight dip during shake
-                yaw: GestureCurve(amplitude: 12, oscillations: 3, duration: 1.0, asymmetry: 0.5, anticipation: 0.2, declination: 0.85),
-                roll: GestureCurve(),
+                pitch: GestureCurve(amplitude: -3, oscillations: 1, duration: 1.0, asymmetry: 0.3),
+                yaw: GestureCurve(amplitude: 18, oscillations: 3, duration: 1.0, asymmetry: 0.5, anticipation: 0.2, declination: 0.85),
+                roll: GestureCurve(amplitude: 3, oscillations: 2, duration: 1.0, asymmetry: 0.5), // slight roll coupling
                 duration: 1.0
             )
         case .gentleShake:
-            // Soft no. Small, 1.5 oscillations.
             return (
                 pitch: GestureCurve(),
-                yaw: GestureCurve(amplitude: 6, oscillations: 2, duration: 0.7, asymmetry: 0.5, declination: 0.7),
-                roll: GestureCurve(),
+                yaw: GestureCurve(amplitude: 10, oscillations: 2, duration: 0.7, asymmetry: 0.5, declination: 0.7),
+                roll: GestureCurve(amplitude: 2, oscillations: 2, duration: 0.7, asymmetry: 0.5),
                 duration: 0.7
             )
         case .dismissive:
-            // Look away + slight shake. Yaw bias to one side.
             return (
-                pitch: GestureCurve(amplitude: 3, oscillations: 1, duration: 0.8, asymmetry: 0.6), // slight lean back
-                yaw: GestureCurve(amplitude: 15, oscillations: 2, duration: 0.8, asymmetry: 0.4, declination: 0.6),
-                roll: GestureCurve(amplitude: -3, oscillations: 1, duration: 0.8, asymmetry: 0.5),
+                pitch: GestureCurve(amplitude: 5, oscillations: 1, duration: 0.8, asymmetry: 0.6),
+                yaw: GestureCurve(amplitude: 20, oscillations: 2, duration: 0.8, asymmetry: 0.4, declination: 0.6),
+                roll: GestureCurve(amplitude: -5, oscillations: 1, duration: 0.8, asymmetry: 0.5),
                 duration: 0.8
             )
 
         // ── Curiosity / Thinking ──
 
         case .tilt:
-            // Single roll tilt. Disney: anticipation in opposite direction.
             let dir: Float = Bool.random() ? 1 : -1
             return (
                 pitch: GestureCurve(),
-                yaw: GestureCurve(),
-                roll: GestureCurve(amplitude: 8 * dir, oscillations: 1, duration: 0.6, asymmetry: 0.35, anticipation: 0.25, overshoot: 0.1),
+                yaw: GestureCurve(amplitude: 3 * dir, oscillations: 1, duration: 0.6, asymmetry: 0.4), // arc coupling
+                roll: GestureCurve(amplitude: 12 * dir, oscillations: 1, duration: 0.6, asymmetry: 0.35, anticipation: 0.25, overshoot: 0.12),
                 duration: 0.6
             )
         case .tiltNod:
-            // Tilt + micro nod = "I see, interesting"
             let dir: Float = Bool.random() ? 1 : -1
             return (
-                pitch: GestureCurve(amplitude: -5, oscillations: 1, duration: 0.7, asymmetry: 0.4),
+                pitch: GestureCurve(amplitude: -7, oscillations: 1, duration: 0.7, asymmetry: 0.4),
                 yaw: GestureCurve(),
-                roll: GestureCurve(amplitude: 6 * dir, oscillations: 1, duration: 0.7, asymmetry: 0.35, anticipation: 0.2),
+                roll: GestureCurve(amplitude: 8 * dir, oscillations: 1, duration: 0.7, asymmetry: 0.35, anticipation: 0.2),
                 duration: 0.7
             )
         case .think:
-            // Look up-left, slight tilt, hold, then return. Slow and contemplative.
             return (
-                pitch: GestureCurve(amplitude: 5, oscillations: 1, duration: 1.2, asymmetry: 0.6), // look up (hold longer)
-                yaw: GestureCurve(amplitude: -8, oscillations: 1, duration: 1.2, asymmetry: 0.55), // look left
-                roll: GestureCurve(amplitude: 4, oscillations: 1, duration: 1.2, asymmetry: 0.5),
+                pitch: GestureCurve(amplitude: 8, oscillations: 1, duration: 1.2, asymmetry: 0.6),
+                yaw: GestureCurve(amplitude: -12, oscillations: 1, duration: 1.2, asymmetry: 0.55),
+                roll: GestureCurve(amplitude: 6, oscillations: 1, duration: 1.2, asymmetry: 0.5),
                 duration: 1.2
             )
         case .consider:
-            // Head tilts side to side — weighing options.
             return (
-                pitch: GestureCurve(),
-                yaw: GestureCurve(amplitude: 5, oscillations: 2, duration: 1.4, asymmetry: 0.5),
-                roll: GestureCurve(amplitude: 6, oscillations: 2, duration: 1.4, asymmetry: 0.5, declination: 0.9),
+                pitch: GestureCurve(amplitude: 3, oscillations: 1, duration: 1.4, asymmetry: 0.6),
+                yaw: GestureCurve(amplitude: 8, oscillations: 2, duration: 1.4, asymmetry: 0.5),
+                roll: GestureCurve(amplitude: 10, oscillations: 2, duration: 1.4, asymmetry: 0.5, declination: 0.9),
                 duration: 1.4
             )
 
         // ── Surprise / Realization ──
 
         case .surprise:
-            // Quick pull back. Anticipation: slight forward lean first.
             return (
-                pitch: GestureCurve(amplitude: 8, oscillations: 1, duration: 0.5, asymmetry: 0.2, anticipation: 0.35, overshoot: 0.15),
+                pitch: GestureCurve(amplitude: 12, oscillations: 1, duration: 0.5, asymmetry: 0.2, anticipation: 0.35, overshoot: 0.18),
                 yaw: GestureCurve(),
                 roll: GestureCurve(),
                 duration: 0.5
             )
         case .realize:
-            // Snap head up, then lean forward. Two-phase.
             return (
-                pitch: GestureCurve(amplitude: 6, oscillations: 1, duration: 0.35, asymmetry: 0.2, overshoot: 0.2), // snap up
-                yaw: GestureCurve(),
+                pitch: GestureCurve(amplitude: 10, oscillations: 1, duration: 0.35, asymmetry: 0.2, overshoot: 0.2),
+                yaw: GestureCurve(amplitude: 3, oscillations: 1, duration: 0.35, asymmetry: 0.3),
                 roll: GestureCurve(),
                 duration: 0.35
             )
@@ -366,63 +356,57 @@ public class AvatarHeadGesture {
         // ── Emphasis ──
 
         case .emphasize:
-            // Forward thrust on beat. Quick, snappy.
             return (
-                pitch: GestureCurve(amplitude: -5, oscillations: 1, duration: 0.3, asymmetry: 0.25, anticipation: 0.2),
-                yaw: GestureCurve(),
+                pitch: GestureCurve(amplitude: -8, oscillations: 1, duration: 0.3, asymmetry: 0.25, anticipation: 0.2),
+                yaw: GestureCurve(amplitude: 2, oscillations: 1, duration: 0.3, asymmetry: 0.4),
                 roll: GestureCurve(),
                 duration: 0.3
             )
         case .strongEmphasize:
             // Bigger forward + slight nod + body lean.
             return (
-                pitch: GestureCurve(amplitude: -8, oscillations: 1, duration: 0.4, asymmetry: 0.25, anticipation: 0.3, overshoot: 0.1),
-                yaw: GestureCurve(amplitude: 3, oscillations: 1, duration: 0.4, asymmetry: 0.3),
-                roll: GestureCurve(),
+                pitch: GestureCurve(amplitude: -12, oscillations: 1, duration: 0.4, asymmetry: 0.25, anticipation: 0.3, overshoot: 0.12),
+                yaw: GestureCurve(amplitude: 5, oscillations: 1, duration: 0.4, asymmetry: 0.3),
+                roll: GestureCurve(amplitude: 2, oscillations: 1, duration: 0.4, asymmetry: 0.4),
                 duration: 0.4
             )
 
         // ── Emotional ──
 
         case .empathize:
-            // Slow nod, forward lean, gentle.
             return (
-                pitch: GestureCurve(amplitude: -6, oscillations: 1, duration: 1.0, asymmetry: 0.5),
+                pitch: GestureCurve(amplitude: -9, oscillations: 1, duration: 1.0, asymmetry: 0.5),
                 yaw: GestureCurve(),
-                roll: GestureCurve(amplitude: 3, oscillations: 1, duration: 1.0, asymmetry: 0.5), // slight tilt
+                roll: GestureCurve(amplitude: 5, oscillations: 1, duration: 1.0, asymmetry: 0.5),
                 duration: 1.0
             )
         case .excited:
-            // Quick bouncy up-down. High frequency, small amplitude.
             return (
-                pitch: GestureCurve(amplitude: -5, oscillations: 3, duration: 0.6, asymmetry: 0.3, overshoot: 0.15, declination: 0.85),
-                yaw: GestureCurve(),
-                roll: GestureCurve(amplitude: 3, oscillations: 2, duration: 0.6, asymmetry: 0.4),
-                duration: 0.6
+                pitch: GestureCurve(amplitude: -8, oscillations: 4, duration: 0.7, asymmetry: 0.3, overshoot: 0.15, declination: 0.85),
+                yaw: GestureCurve(amplitude: 3, oscillations: 2, duration: 0.7, asymmetry: 0.4),
+                roll: GestureCurve(amplitude: 5, oscillations: 3, duration: 0.7, asymmetry: 0.4),
+                duration: 0.7
             )
         case .sad:
-            // Slow droop. Heavy head falls forward, very slow return.
             return (
-                pitch: GestureCurve(amplitude: -7, oscillations: 1, duration: 1.5, asymmetry: 0.65), // hold the droop
-                yaw: GestureCurve(),
-                roll: GestureCurve(amplitude: 3, oscillations: 1, duration: 1.5, asymmetry: 0.6),
+                pitch: GestureCurve(amplitude: -10, oscillations: 1, duration: 1.5, asymmetry: 0.65),
+                yaw: GestureCurve(amplitude: -3, oscillations: 1, duration: 1.5, asymmetry: 0.6),
+                roll: GestureCurve(amplitude: 5, oscillations: 1, duration: 1.5, asymmetry: 0.6),
                 duration: 1.5
             )
         case .skeptical:
-            // Lean back, slight turn. One brow up (via secondary action).
             return (
-                pitch: GestureCurve(amplitude: 5, oscillations: 1, duration: 0.8, asymmetry: 0.4, anticipation: 0.15),
-                yaw: GestureCurve(amplitude: -6, oscillations: 1, duration: 0.8, asymmetry: 0.45),
-                roll: GestureCurve(amplitude: -3, oscillations: 1, duration: 0.8, asymmetry: 0.4),
+                pitch: GestureCurve(amplitude: 8, oscillations: 1, duration: 0.8, asymmetry: 0.4, anticipation: 0.15),
+                yaw: GestureCurve(amplitude: -8, oscillations: 1, duration: 0.8, asymmetry: 0.45),
+                roll: GestureCurve(amplitude: -5, oscillations: 1, duration: 0.8, asymmetry: 0.4),
                 duration: 0.8
             )
 
         // ── Conversational ──
 
         case .acknowledge:
-            // Micro-nod. Tiny, quick. Listener feedback.
             return (
-                pitch: GestureCurve(amplitude: -3, oscillations: 1, duration: 0.25, asymmetry: 0.3),
+                pitch: GestureCurve(amplitude: -5, oscillations: 1, duration: 0.25, asymmetry: 0.3),
                 yaw: GestureCurve(),
                 roll: GestureCurve(),
                 duration: 0.25
@@ -430,17 +414,17 @@ public class AvatarHeadGesture {
         case .swaggle:
             // Milt Kahl figure-8: yaw oscillates, pitch at 2x frequency.
             return (
-                pitch: GestureCurve(amplitude: -3, oscillations: 2, duration: 0.8, asymmetry: 0.5),
-                yaw: GestureCurve(amplitude: 8, oscillations: 1, duration: 0.8, asymmetry: 0.5),
-                roll: GestureCurve(amplitude: 4, oscillations: 2, duration: 0.8, asymmetry: 0.5),
+                pitch: GestureCurve(amplitude: -5, oscillations: 2, duration: 0.8, asymmetry: 0.5),
+                yaw: GestureCurve(amplitude: 12, oscillations: 1, duration: 0.8, asymmetry: 0.5),
+                roll: GestureCurve(amplitude: 6, oscillations: 2, duration: 0.8, asymmetry: 0.5),
                 duration: 0.8
             )
         case .shrug:
             // Head component of shrug: slight raise + tilt.
             return (
-                pitch: GestureCurve(amplitude: 3, oscillations: 1, duration: 0.6, asymmetry: 0.35, anticipation: 0.2),
+                pitch: GestureCurve(amplitude: 5, oscillations: 1, duration: 0.6, asymmetry: 0.35, anticipation: 0.2),
                 yaw: GestureCurve(),
-                roll: GestureCurve(amplitude: 5, oscillations: 1, duration: 0.6, asymmetry: 0.4),
+                roll: GestureCurve(amplitude: 8, oscillations: 1, duration: 0.6, asymmetry: 0.4),
                 duration: 0.6
             )
 
@@ -453,123 +437,141 @@ public class AvatarHeadGesture {
     private func secondaryAction(for type: GestureType) -> SecondaryAction? {
         switch type {
         case .nod, .doubleNod:
-            // Brows raise slightly on nod, eyes may narrow on down-beat
             return SecondaryAction([
-                "browInnerUp": 0.12,
-                "mouthSmileLeft": 0.05,
-                "mouthSmileRight": 0.05,
+                "browInnerUp": 0.25,
+                "mouthSmileLeft": 0.12,
+                "mouthSmileRight": 0.12,
+                "eyeSquintLeft": 0.06,
+                "eyeSquintRight": 0.06,
             ], onset: 0.1, peak: 0.3, offset: 0.7)
 
         case .enthusiasticNod:
             return SecondaryAction([
-                "browInnerUp": 0.15,
-                "mouthSmileLeft": 0.15,
-                "mouthSmileRight": 0.15,
-                "cheekSquintLeft": 0.08,
-                "cheekSquintRight": 0.08,
+                "browInnerUp": 0.35,
+                "mouthSmileLeft": 0.3,
+                "mouthSmileRight": 0.3,
+                "cheekSquintLeft": 0.2,
+                "cheekSquintRight": 0.2,
+                "eyeWideLeft": 0.1,
+                "eyeWideRight": 0.1,
             ], onset: 0.05, peak: 0.2, offset: 0.8)
 
         case .reluctantNod:
             return SecondaryAction([
-                "mouthPressLeft": 0.1,
-                "mouthPressRight": 0.1,
-                "browDownLeft": 0.05,
-                "browDownRight": 0.05,
+                "mouthPressLeft": 0.25,
+                "mouthPressRight": 0.25,
+                "browDownLeft": 0.12,
+                "browDownRight": 0.12,
+                "mouthFrownLeft": 0.08,
+                "mouthFrownRight": 0.08,
             ], onset: 0.2, peak: 0.5, offset: 0.85)
 
         case .shake, .gentleShake:
-            // Mouth tightens during shake
             return SecondaryAction([
-                "mouthPressLeft": 0.1,
-                "mouthPressRight": 0.1,
-                "browDownLeft": 0.08,
-                "browDownRight": 0.08,
+                "mouthPressLeft": 0.2,
+                "mouthPressRight": 0.2,
+                "browDownLeft": 0.15,
+                "browDownRight": 0.15,
+                "mouthFrownLeft": 0.06,
+                "mouthFrownRight": 0.06,
             ], onset: 0.1, peak: 0.3, offset: 0.8)
 
         case .dismissive:
             return SecondaryAction([
-                "eyeSquintLeft": 0.1,
-                "eyeSquintRight": 0.1,
-                "mouthLeft": 0.06,
+                "eyeSquintLeft": 0.2,
+                "eyeSquintRight": 0.2,
+                "mouthLeft": 0.12,
+                "mouthSmileLeft": 0.08,
+                "browOuterUpLeft": 0.1,
             ], onset: 0.1, peak: 0.35, offset: 0.7)
 
         case .think:
             return SecondaryAction([
-                "browDownLeft": 0.08,
-                "browDownRight": 0.08,
-                "eyeSquintLeft": 0.06,
-                "eyeSquintRight": 0.06,
-                "mouthLeft": 0.04,
+                "browDownLeft": 0.15,
+                "browDownRight": 0.15,
+                "eyeSquintLeft": 0.12,
+                "eyeSquintRight": 0.12,
+                "mouthLeft": 0.08,
+                "mouthPucker": 0.1,
             ], onset: 0.15, peak: 0.4, offset: 0.85)
 
         case .consider:
             return SecondaryAction([
-                "browInnerUp": 0.08,
-                "mouthPucker": 0.06,
+                "browInnerUp": 0.18,
+                "mouthPucker": 0.15,
+                "eyeLookUpLeft": 0.1,
+                "eyeLookUpRight": 0.1,
             ], onset: 0.1, peak: 0.3, offset: 0.8)
 
         case .surprise:
-            // Eyes widen 50ms before head snaps back, jaw drops after
             return SecondaryAction([
-                "eyeWideLeft": 0.35,
-                "eyeWideRight": 0.35,
-                "browInnerUp": 0.3,
-                "browOuterUpLeft": 0.25,
-                "browOuterUpRight": 0.25,
-                "jawOpen": 0.15,
+                "eyeWideLeft": 0.6,
+                "eyeWideRight": 0.6,
+                "browInnerUp": 0.5,
+                "browOuterUpLeft": 0.45,
+                "browOuterUpRight": 0.45,
+                "jawOpen": 0.35,
             ], onset: 0.0, peak: 0.15, offset: 0.6)
 
         case .realize:
             return SecondaryAction([
-                "eyeWideLeft": 0.25,
-                "eyeWideRight": 0.25,
-                "browInnerUp": 0.2,
-                "browOuterUpLeft": 0.15,
-                "browOuterUpRight": 0.15,
-                "mouthSmileLeft": 0.08,
-                "mouthSmileRight": 0.08,
+                "eyeWideLeft": 0.45,
+                "eyeWideRight": 0.45,
+                "browInnerUp": 0.4,
+                "browOuterUpLeft": 0.3,
+                "browOuterUpRight": 0.3,
+                "mouthSmileLeft": 0.2,
+                "mouthSmileRight": 0.2,
+                "jawOpen": 0.15,
             ], onset: 0.0, peak: 0.2, offset: 0.7)
 
         case .empathize:
             return SecondaryAction([
-                "browInnerUp": 0.1,
-                "mouthSmileLeft": 0.06,
-                "mouthSmileRight": 0.06,
+                "browInnerUp": 0.25,
+                "mouthSmileLeft": 0.15,
+                "mouthSmileRight": 0.15,
+                "eyeSquintLeft": 0.1,
+                "eyeSquintRight": 0.1,
             ], onset: 0.15, peak: 0.45, offset: 0.9)
 
         case .excited:
             return SecondaryAction([
-                "eyeWideLeft": 0.15,
-                "eyeWideRight": 0.15,
-                "mouthSmileLeft": 0.2,
-                "mouthSmileRight": 0.2,
-                "cheekSquintLeft": 0.1,
-                "cheekSquintRight": 0.1,
+                "eyeWideLeft": 0.35,
+                "eyeWideRight": 0.35,
+                "mouthSmileLeft": 0.45,
+                "mouthSmileRight": 0.45,
+                "cheekSquintLeft": 0.25,
+                "cheekSquintRight": 0.25,
+                "jawOpen": 0.15,
             ], onset: 0.05, peak: 0.2, offset: 0.85)
 
         case .sad:
             return SecondaryAction([
-                "browInnerUp": 0.15,
-                "mouthFrownLeft": 0.12,
-                "mouthFrownRight": 0.12,
+                "browInnerUp": 0.3,
+                "mouthFrownLeft": 0.3,
+                "mouthFrownRight": 0.3,
+                "eyeBlinkLeft": 0.2,
+                "eyeBlinkRight": 0.2,
             ], onset: 0.1, peak: 0.5, offset: 0.95)
 
         case .skeptical:
-            // Asymmetric brow — one up, one down
             return SecondaryAction([
-                "browOuterUpLeft": 0.3,
-                "browDownRight": 0.1,
-                "mouthLeft": 0.05,
-                "eyeSquintRight": 0.08,
+                "browOuterUpLeft": 0.5,
+                "browDownRight": 0.2,
+                "mouthLeft": 0.1,
+                "eyeSquintRight": 0.15,
+                "mouthSmileLeft": 0.06,
             ], onset: 0.1, peak: 0.35, offset: 0.75)
 
         case .shrug:
             return SecondaryAction([
-                "browInnerUp": 0.2,
-                "browOuterUpLeft": 0.15,
-                "browOuterUpRight": 0.15,
-                "mouthPressLeft": 0.08,
-                "mouthPressRight": 0.08,
+                "browInnerUp": 0.4,
+                "browOuterUpLeft": 0.3,
+                "browOuterUpRight": 0.3,
+                "mouthPressLeft": 0.15,
+                "mouthPressRight": 0.15,
+                "mouthStretchLeft": 0.1,
+                "mouthStretchRight": 0.1,
             ], onset: 0.1, peak: 0.3, offset: 0.7)
 
         case .swaggle:
@@ -581,6 +583,53 @@ public class AvatarHeadGesture {
 
         default:
             return nil
+        }
+    }
+
+    /// Spatial translation per gesture type (avatar scene units).
+    /// Disney: characters move THROUGH space, not just rotate.
+    /// ARKit scale: X~50, Y~20, Z~100. Values here are in scene units.
+    /// 0.3 Y ≈ 1.5cm real, 1.0 Z ≈ 1cm real, 0.5 X ≈ 1cm real.
+    private func spatialTranslation(for type: GestureType) -> SIMD3<Float> {
+        switch type {
+        case .nod, .doubleNod, .enthusiasticNod:
+            return SIMD3(0, -0.05, 0.2)        // lean forward on nod
+        case .reluctantNod:
+            return SIMD3(0, -0.02, 0.08)       // minimal
+        case .shake, .gentleShake:
+            return SIMD3(0.1, 0, 0)             // slight side shift
+        case .dismissive:
+            return SIMD3(0.15, 0, -0.2)         // lean away + side
+        case .tilt, .tiltNod:
+            return SIMD3(0.08, 0, 0.1)          // lean in + side
+        case .think:
+            return SIMD3(0, 0.06, -0.25)        // lean back, sit up
+        case .consider:
+            return SIMD3(0.12, 0, 0)            // side-to-side weight shift
+        case .surprise:
+            return SIMD3(0, 0.12, -0.5)         // jump back + up (big!)
+        case .realize:
+            return SIMD3(0, 0.1, 0.3)           // snap forward + up
+        case .emphasize:
+            return SIMD3(0, -0.04, 0.3)         // thrust forward
+        case .strongEmphasize:
+            return SIMD3(0, -0.06, 0.5)         // bigger thrust
+        case .empathize:
+            return SIMD3(0, 0, 0.2)             // lean in
+        case .excited:
+            return SIMD3(0, 0.15, 0.15)         // bounce up + forward
+        case .sad:
+            return SIMD3(0, -0.15, 0)           // sink down
+        case .skeptical:
+            return SIMD3(0, 0, -0.2)            // lean back
+        case .acknowledge:
+            return SIMD3(0, -0.03, 0.08)        // micro lean
+        case .swaggle:
+            return SIMD3(0.15, 0, 0)            // side sway
+        case .shrug:
+            return SIMD3(0, 0.1, 0)             // rise up
+        case .custom:
+            return .zero
         }
     }
 
@@ -604,6 +653,7 @@ public class AvatarHeadGesture {
         var totalYaw: Float = 0
         var totalRoll: Float = 0
         var totalBS: [String: Float] = [:]
+        var totalTranslation = SIMD3<Float>.zero
 
         // Evaluate and sum all active gestures
         activeGestures.removeAll { gesture in
@@ -616,6 +666,23 @@ public class AvatarHeadGesture {
             totalPitch += pitchCurve.evaluate(at: t) * gesture.intensity
             totalYaw += yawCurve.evaluate(at: t) * gesture.intensity
             totalRoll += rollCurve.evaluate(at: t) * gesture.intensity
+
+            // Spatial translation: envelope follows the main gesture curve
+            let transTarget = spatialTranslation(for: gesture.type)
+            if transTarget != .zero {
+                // Use a simple attack-sustain-release envelope for translation
+                let transEnvelope: Float
+                if t < 0.3 {
+                    let at = t / 0.3
+                    transEnvelope = at * at * (3 - 2 * at) // smoothstep in
+                } else if t < 0.6 {
+                    transEnvelope = 1.0
+                } else {
+                    let rt = (t - 0.6) / 0.4
+                    transEnvelope = 1.0 - rt * rt // quadratic out
+                }
+                totalTranslation += transTarget * transEnvelope * gesture.intensity
+            }
 
             // Secondary facial action
             if let secondary = secondaryAction(for: gesture.type) {
@@ -633,6 +700,9 @@ public class AvatarHeadGesture {
         onFrame?(totalPitch, totalYaw, totalRoll)
         if !totalBS.isEmpty {
             onBlendshapes?(totalBS)
+        }
+        if totalTranslation != .zero {
+            onTranslation?(totalTranslation)
         }
     }
 }

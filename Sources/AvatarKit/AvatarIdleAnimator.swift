@@ -112,6 +112,23 @@ public class AvatarIdleAnimator {
     private var headDragYVel: Float = 0
     private var headDragZ: Float = 0      // head's delayed follow of bodyZ
     private var headDragZVel: Float = 0
+
+    // --- Spatial Translation (Disney: characters move through space, not just rotate) ---
+    // Apple Animoji scene units: face tracking uses scale (50, 20, 100) for X, Y, Z.
+    // Typical rootJoint values from ARKit: X ±1.0, Y ±0.4, Z ±5.0.
+    // So 0.1 in Y ≈ 5mm real, 0.1 in X ≈ 2mm real, 0.1 in Z ≈ 1mm real.
+    private var spatialX: Float = 0       // side-to-side sway
+    private var spatialY: Float = 0       // up-down (breathing, bounce)
+    private var spatialZ: Float = 0       // forward-back (lean, emphasis)
+    private var spatialXVel: Float = 0
+    private var spatialYVel: Float = 0
+    private var spatialZVel: Float = 0
+    // Slow drift targets (alive idle — never truly still)
+    private var driftTargetX: Float = 0
+    private var driftTargetY: Float = 0
+    private var nextDriftTime: TimeInterval = 0
+    // Sway phase (layered noise: slow drift + breathing + micro-tremor)
+    private var swayPhase: Float = 0
     
     // --- Saccade ---
     private var nextSaccadeTime: TimeInterval = 0
@@ -863,7 +880,7 @@ public class AvatarIdleAnimator {
         //
         // BODY LAYER (root_JNT):
         //   Rotation: weight shift lean + breathing lean + speaking forward lean
-        //   Translation: body sway + breathing Y
+        //   Translation: body sway + breathing Y + emphasis lean + bounce
         //   This is the "torso" — the whole character moves as a unit
         //
         // HEAD LAYER (head_JNT, additive on body):
@@ -880,58 +897,123 @@ public class AvatarIdleAnimator {
             for key in bs.keys { bs[key]! *= intensity }
             headYaw *= intensity; headPitch *= intensity; headRoll *= intensity
         }
-        
+
         let rad = Float.pi / 180.0
-        
+
         // --- Body rotation ---
-        // Pose system: discrete poses with spring transitions (replaces sin-wave)
-        // Breathing: slight pitch oscillation
-        // Speaking: forward lean (pitch)
-        // Head motion coupling: big head turns pull body slightly
         var bodyYaw: Float = 0
         var bodyPitch: Float = 0
         var bodyRoll: Float = 0
-        
+
         // Pose system drives body lean (primary body motion)
         bodyRoll = poseCurrentAngles.z * intensity    // lean from pose
         bodyYaw = poseCurrentAngles.x * intensity     // turn from pose
         bodyPitch = poseCurrentAngles.y * intensity   // forward/back from pose
-        
+
         // Breathing drives body pitch
         bodyPitch = headDragZ * 0.5 * intensity  // body leans with breath
-        
+
         // Speaking forward lean
         if isSpeaking {
             bodyPitch += 2.0 * intensity  // engaged forward lean
         } else if isListening {
             bodyPitch += 3.0 * intensity  // attentive forward lean
         }
-        
+
         // Secondary action: head turns pull body (delayed, reduced)
         bodyYaw += recentHeadYawDelta * 0.15
         bodyPitch += recentHeadPitchDelta * 0.1
-        
+
         let bodyQ = simd_quatf(angle: bodyYaw * rad, axis: SIMD3(0, 1, 0))
                   * simd_quatf(angle: bodyPitch * rad, axis: SIMD3(1, 0, 0))
                   * simd_quatf(angle: bodyRoll * rad, axis: SIMD3(0, 0, 1))
-        
+
         // --- Head rotation (relative to body) ---
-        // Remove body contribution from head angles so head is additive
         let headOnlyYaw = headYaw - bodyYaw
         let headOnlyPitch = headPitch - bodyPitch
         let headOnlyRoll = headRoll - bodyRoll
-        
+
         let headQ = simd_quatf(angle: headOnlyYaw * rad, axis: SIMD3(0, 1, 0))
                   * simd_quatf(angle: headOnlyPitch * rad, axis: SIMD3(1, 0, 0))
                   * simd_quatf(angle: headOnlyRoll * rad, axis: SIMD3(0, 0, 1))
-        
-        // Translation: rotation-only for now.
-        // Apple's neckNode (head_JNT) is offset from root_JNT, so rotation
-        // naturally produces spatial displacement — no explicit translation needed.
-        // Body sway is expressed purely through bodyQ roll/yaw.
-        let headTranslation = SIMD3<Float>.zero
-        let bodyTranslation = SIMD3<Float>.zero
-        
+
+        // ═══════════════════════════════════════════
+        // Spatial Translation (Disney: characters move THROUGH space)
+        //
+        // Apple Animoji scene units (from ARKit face tracking scale analysis):
+        //   X: scale ~50 (so 1.0 ≈ 2cm real)
+        //   Y: scale ~20 (so 1.0 ≈ 5cm real)
+        //   Z: scale ~100 (so 1.0 ≈ 1cm real)
+        // Typical rootJoint values from ARKit: X ±1.0, Y ±0.4, Z ±5.0
+        //
+        // Disney: exaggerate 1.3-1.5x natural human motion.
+        // Research: for every 5° rotation, ~5-10px translation.
+        // ═══════════════════════════════════════════
+
+        // Layer A: Breathing translation (Y rise/fall + Z lean)
+        // Real human chest: 3-5mm rise per breath → 0.06-0.1 in Y units
+        let breathY = bodyY * 0.25 * intensity    // visible rise/fall
+        let breathZ = bodyZ * 0.12 * intensity    // lean back on inhale
+
+        // Layer B: Slow drift (alive idle — never truly still)
+        // Research: human CoP drifts to new position every ~2.3s
+        // Dominant sway frequency ~0.3 Hz, amplitude 3-7mm
+        swayPhase += dt
+        if now > nextDriftTime {
+            driftTargetX = Float.random(in: -0.25...0.25)   // ±5mm real
+            driftTargetY = Float.random(in: -0.06...0.06)   // ±3mm real
+            nextDriftTime = now + Double.random(in: 2.0...4.0)
+        }
+        // Underdamped spring (ratio 0.8) — slight overshoot gives weight
+        let driftStiffness: Float = 3.0
+        let driftDampingRatio: Float = 0.8
+        let driftDamping: Float = 2.0 * sqrt(driftStiffness) * driftDampingRatio
+        spatialXVel += ((driftTargetX - spatialX) * driftStiffness - spatialXVel * driftDamping) * dt
+        spatialX += spatialXVel * dt
+        spatialYVel += ((driftTargetY - spatialY) * driftStiffness - spatialYVel * driftDamping) * dt
+        spatialY += spatialYVel * dt
+
+        // Layer C: Pose-driven weight shift (when pose changes, body translates)
+        // Roll → X shift (lean left = shift left), Pitch → Z shift
+        let poseShiftX = poseCurrentAngles.z * 0.04 * intensity   // roll → X
+        let poseShiftZ = poseCurrentAngles.y * 0.03 * intensity   // pitch → Z
+
+        // Layer D: Speaking emphasis bounce (Y oscillation on beats)
+        var emphasisY: Float = 0
+        var emphasisZ: Float = 0
+        if beatGesturePhase >= 0 {
+            let beatEnvelope = sin(beatGesturePhase * .pi)
+            emphasisY = beatEnvelope * 0.08 * intensity    // visible bounce
+            emphasisZ = beatEnvelope * 0.06 * intensity    // forward thrust
+        }
+
+        // Layer E: State-driven spatial offset (Disney: body leads emotion)
+        var stateZ: Float = 0
+        var stateY: Float = 0
+        if isSpeaking {
+            stateZ = 0.15 * intensity    // lean forward when speaking
+        } else if isListening {
+            stateZ = 0.2 * intensity     // lean in when listening
+        }
+        if currentMood == .thinking {
+            stateZ = -0.15 * intensity   // lean back when thinking
+            stateY = 0.05 * intensity    // sit up slightly
+        }
+
+        // Compose body translation (all layers)
+        let bodyTranslation = SIMD3<Float>(
+            (spatialX + poseShiftX) * intensity,
+            (breathY + spatialY + emphasisY + stateY) * intensity,
+            (breathZ + spatialZ + poseShiftZ + emphasisZ + stateZ) * intensity
+        )
+
+        // Head translation: offset from body (successive breaking of joints)
+        // Head lags behind body — Disney: 2-3 frame delay at 60fps
+        let headLagX = spatialXVel * -0.06  // head trails body sway
+        let headLagY = headDragYVel * -0.04 // head trails body breathing
+        let headLagZ = spatialZVel * -0.04  // head trails forward/back
+        let headTranslation = SIMD3<Float>(headLagX, headLagY, headLagZ)
+
         onFrame?(bs, headQ, headTranslation, bodyQ, bodyTranslation)
     }
     
